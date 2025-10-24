@@ -1,0 +1,37 @@
+{
+  "version": "1.0.0",
+  "app_name": "Sistema de Envío de Comprobantes",
+  "update_url": "",
+  "smtp": {
+    "server": "smtp.office365.com",
+    "port": 587,
+    "use_tls": true,
+    "username": "inteligenciadenegocios@correagro.com",
+    "password_encrypted": "Z0FBQUFBQm8tcGhPeUVqYmRqd0R6TGFaTWZBUFZqSG9ONGota293WlRqOG1QMk41RG40dmtmSjZKMjZ6c3hOV2ZrVkEybW9SZ2I4X042TFgxUFZDeVJrSzRfQ19xTTIzNzFXWDJUdi1TZllRRWlleVdvMFRoZTg9"
+  },
+  "email": {
+    "nit_required_in_subject": true,
+    "subject_template": "Comprobantes - NIT: {nit} - {cliente}",
+    "body_template": "Estimado/a {cliente},\n\nAdjunto encontrará sus comprobantes.\n\nSaludos cordiales.",
+    "emails_copia": []
+  },
+  "test_mode": {
+    "enabled": true,
+    "test_email": "inteligenciadenegocios@correagro.com"
+  },
+  "paths": {
+    "temp_folder": "data/temp",
+    "reports_folder": "data/reports",
+    "logs_folder": "logs"
+  },
+  "database": {
+    "path": "data/comprobantes.db"
+  },
+  "ui": {
+    "theme": "light",
+    "window_width": 1200,
+    "window_height": 800,
+    "last_zip_path": "C:/Users/siste/Downloads/805025961 4.zip",
+    "last_excel_path": "C:/Users/siste/Downloads/CORREOS DE QUESOS LA FLORIDA 16-10-2025.xlsx"
+  }
+}
