@@ -1,0 +1,113 @@
+# ─────────────────────────────
+# Entornos virtuales
+# ─────────────────────────────
+.venv/
+venv/
+ENV/
+env/
+
+# Variables de entorno
+.env
+.env.*
+*.env
+
+# ─────────────────────────────
+# Python: bytecode & caches
+# ─────────────────────────────
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# ─────────────────────────────
+# Builds / distribución
+# ─────────────────────────────
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# ─────────────────────────────
+# Tests & tooling
+# ─────────────────────────────
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.pytest_cache/
+.mypy_cache/
+.pytype/
+.cache/
+
+# ─────────────────────────────
+# IDEs/editores
+# ─────────────────────────────
+.vscode/
+.idea/
+*.code-workspace
+
+# ─────────────────────────────
+# Sistema operativo
+# ─────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─────────────────────────────
+# PyInstaller / cx_Freeze
+# ─────────────────────────────
+*.spec
+
+# ─────────────────────────────
+# Archivos generados por la app
+# ─────────────────────────────
+config.json
+
+# Logs (mantener carpeta con .gitkeep)
+logs/
+!logs/.gitkeep
+
+# Reportes (mantener carpeta con .gitkeep)
+reports/
+!reports/.gitkeep
+
+# Temporales / extracción de ZIP (mantener carpeta con .gitkeep)
+temp/
+!temp/.gitkeep
+zip_extract_*/
+**/zip_extract_*/
+
+# ─────────────────────────────
+# Datos locales / BD
+# ─────────────────────────────
+data/**/*.db
+data/**/*.sqlite*
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+**/*.db-journal
+**/*.db-shm
+**/*.db-wal
+
+# ─────────────────────────────
+# Archivos varios
+# ─────────────────────────────
+*.log
+*.tmp
+*.bak
+
+# Claves / certificados (si se usan)
+*.pem
+*.key
+*.crt
+*.p12
+
+# ─────────────────────────────
+# Excel de salida (ya cubierto por /reports)
+# Si quisieras ignorar TODOS los Excel generados en cualquier parte,
+# descomenta estas líneas:
+# **/*.xlsx
+# **/*.xlsm
+# **/*.xls

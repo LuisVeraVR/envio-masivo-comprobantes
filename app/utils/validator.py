@@ -170,25 +170,24 @@ class Validator:
     @staticmethod
     def normalizar_nit(nit: str) -> str:
         """
-        Normaliza un NIT quitando guiones y caracteres especiales
-        Solo deja los números
-        
-        Args:
-            nit: NIT a normalizar
-            
-        Returns:
-            NIT normalizado (solo números)
+        Normaliza un NIT quitando guiones y caracteres no numéricos.
+        NO elimina el último dígito salvo que haya evidencia de que es DV (guion).
         """
+        import re
         if not nit:
             return ""
-        
-        import re
         nit = str(nit).strip()
-        
+    
+        # Si tiene guion, tomar solo la parte antes del guion (asumimos DV después del guion)
+        if '-' in nit:
+            nit = nit.split('-')[0]
+    
         # Quitar todo excepto dígitos
         nit = re.sub(r'\D', '', nit)
-        
+    
+        # Ya NO quitamos el último dígito automáticamente cuando hay 10
         return nit
+
     
     @staticmethod
     def validar_archivo_excel(ruta_archivo: str) -> Tuple[bool, str]:
@@ -315,7 +314,7 @@ class Validator:
     
     @staticmethod
     def validar_configuracion_smtp(servidor: str, puerto: int, usuario: str, password: str) -> Tuple[bool, str]:
-        """
+        """s
         Valida la configuración SMTP
         
         Args:

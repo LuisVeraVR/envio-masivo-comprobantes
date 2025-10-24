@@ -67,42 +67,56 @@ class ConfiguracionTab(QWidget):
     
     def _crear_grupo_smtp(self):
         """Crea el grupo de configuración SMTP"""
+        from PyQt6.QtWidgets import QFormLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, QSpinBox, QCheckBox
+    
         grupo = QGroupBox("📧 Configuración de Correo SMTP")
-        layout = QFormLayout()
-        
+    
+        # usa un nombre que NO choque con otros 'layout'
+        form_layout = QFormLayout()
+    
         self.txt_servidor = QLineEdit()
         self.txt_servidor.setPlaceholderText("Ej: smtp.gmail.com")
-        layout.addRow("Servidor SMTP:", self.txt_servidor)
-        
+        form_layout.addRow("Servidor SMTP:", self.txt_servidor)
+    
         self.spin_puerto = QSpinBox()
         self.spin_puerto.setRange(1, 65535)
         self.spin_puerto.setValue(587)
-        layout.addRow("Puerto:", self.spin_puerto)
-        
+        form_layout.addRow("Puerto:", self.spin_puerto)
+    
         self.chk_tls = QCheckBox("Usar TLS (recomendado)")
         self.chk_tls.setChecked(True)
-        layout.addRow("", self.chk_tls)
-        
+        form_layout.addRow("", self.chk_tls)
+    
         self.txt_usuario = QLineEdit()
-        self.txt_usuario.setPlaceholderText("Ej: tu-correo@gmail.com")
-        layout.addRow("Usuario (Email):", self.txt_usuario)
-        
+        self.txt_usuario.setPlaceholderText("Ej: tu-correo@empresa.com")
+        form_layout.addRow("Usuario (Email):", self.txt_usuario)
+    
         self.txt_password = QLineEdit()
         self.txt_password.setEchoMode(QLineEdit.EchoMode.Password)
-        self.txt_password.setPlaceholderText("Contraseña de aplicación")
-        
+        self.txt_password.setPlaceholderText("Contraseña (normal o de aplicación)")
+    
         password_layout = QHBoxLayout()
         password_layout.addWidget(self.txt_password)
-        
+    
         self.btn_mostrar_password = QPushButton("👁")
         self.btn_mostrar_password.setMaximumWidth(40)
         self.btn_mostrar_password.setCheckable(True)
         self.btn_mostrar_password.clicked.connect(self._toggle_password)
         password_layout.addWidget(self.btn_mostrar_password)
-        
-        layout.addRow("Contraseña:", password_layout)
-        
-        grupo.setLayout(layout)
+    
+        form_layout.addRow("Contraseña:", password_layout)
+    
+        # Texto de ayuda claro (contraseña normal o de aplicación)
+        ayuda = QLabel(
+            "<small>Puedes usar <b>tu contraseña normal</b> o "
+            "<b>una contraseña de aplicación</b> según tu proveedor.<br>"
+            "Gmail casi siempre requiere contraseña de aplicación con 2FA; "
+            "en servidores corporativos suele funcionar la contraseña normal.</small>"
+        )
+        ayuda.setWordWrap(True)
+        form_layout.addRow("", ayuda)
+    
+        grupo.setLayout(form_layout)
         return grupo
     
     def _crear_grupo_cc(self):

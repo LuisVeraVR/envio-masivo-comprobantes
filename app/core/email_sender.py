@@ -125,72 +125,86 @@ class EmailSender:
         return asunto
     
     def _construir_mensaje(self, destinatario, nit, nombre_cliente, archivos_adjuntos, 
-                          emails_copia=None, prefijo_asunto="Comprobante - NIT: "):
+                       emails_copia=None, prefijo_asunto="Comprobante - NIT: "):
         """
         Construye el mensaje de correo completo
-        
+    
         Args:
-            destinatario: Email del destinatario
+            destinatario: Email(s) del destinatario. Puede ser string o lista/tupla/conjunto.
             nit: NIT del cliente
-            nombre_cliente: Nombre del cliente
-            archivos_adjuntos: Lista de rutas a archivos adjuntos
-            emails_copia: Lista de emails en copia (CC)
-            prefijo_asunto: Prefijo del asunto
-            
+            nombre_cliente: Nombre del cliente (para el cuerpo y asunto)
+            archivos_adjuntos: Lista de rutas a archivos adjuntos (PDFs)
+            emails_copia: Lista de emails en copia (CC) (opcional)
+            prefijo_asunto: Prefijo del asunto (por defecto "Comprobante - NIT: ")
+    
         Returns:
             Objeto MIMEMultipart con el mensaje completo
         """
         # Crear mensaje
         msg = MIMEMultipart()
-        
-        # Configurar remitente
+    
+        # Remitente
         from_name = self.smtp_config.get('from_name', 'Sistema de Comprobantes')
         msg['From'] = formataddr((from_name, self.smtp_config['username']))
-        
-        # Destinatario
-        msg['To'] = destinatario
-        
+    
+        # Normalizar destinatarios (aceptar str o lista)
+        if isinstance(destinatario, (list, tuple, set)):
+            to_list = [str(x).strip() for x in destinatario if str(x).strip()]
+        else:
+            to_list = [str(destinatario).strip()] if str(destinatario).strip() else []
+    
+        # Header "To" como string separado por comas
+        msg['To'] = ', '.join(to_list)
+    
         # Copias (CC)
+        cc_list = []
         if emails_copia:
-            msg['Cc'] = ', '.join(emails_copia)
-        
+            cc_list = [str(x).strip() for x in emails_copia if str(x).strip()]
+            if cc_list:
+                msg['Cc'] = ', '.join(cc_list)
+    
         # Asunto (OBLIGATORIO con NIT)
         msg['Subject'] = self._construir_asunto(nit, nombre_cliente, prefijo_asunto)
-        
-        # Cuerpo del mensaje
-        cantidad_archivos = len(archivos_adjuntos)
+    
+        # Cuerpo (texto plano)
+        cantidad_archivos = len(archivos_adjuntos or [])
         cuerpo = f"""
-Estimado/a {nombre_cliente},
-
-Adjuntamos {cantidad_archivos} comprobante(s) correspondiente(s) a su NIT: {nit}.
-
-Por favor, conserve estos documentos para su registro contable.
-
-Saludos cordiales,
-{from_name}
-
----
-Este es un correo automático, por favor no responder.
-"""
-        
+    Estimado/a {nombre_cliente},
+    
+    Adjuntamos {cantidad_archivos} comprobante(s) correspondiente(s) a su NIT: {nit}.
+    
+    Por favor, conserve estos documentos para su registro contable.
+    
+    Saludos cordiales,
+    {from_name}
+    
+    ---
+    Este es un correo automático, por favor no responder.
+    """.strip()
+    
         msg.attach(MIMEText(cuerpo, 'plain', 'utf-8'))
-        
-        # Adjuntar archivos
-        for archivo in archivos_adjuntos:
+    
+        # Adjuntar archivos PDF
+        for ruta in archivos_adjuntos or []:
             try:
-                with open(archivo, 'rb') as f:
-                    adjunto = MIMEApplication(f.read(), _subtype='pdf')
-                    adjunto.add_header(
-                        'Content-Disposition',
-                        'attachment',
-                        filename=os.path.basename(archivo)
-                    )
-                    msg.attach(adjunto)
+                with open(ruta, 'rb') as f:
+                    adj = MIMEApplication(f.read(), _subtype='pdf')
+                    filename = os.path.basename(ruta)
+    
+                    # Header de adjunto (incluye filename estándar y RFC 5987 para UTF-8)
+                    adj.add_header('Content-Disposition', 'attachment', filename=filename)
+                    try:
+                        # Compatibilidad con nombres con caracteres especiales
+                        adj.add_header('Content-Disposition', 'attachment', **{'filename*': f"UTF-8''{filename}"})
+                    except Exception:
+                        pass
+                    
+                    msg.attach(adj)
             except Exception as e:
-                self.logger.error(f"Error al adjuntar {archivo}: {e}", 
-                                modulo="EmailSender", exc_info=True)
-        
+                self.logger.error(f"Error al adjuntar {ruta}: {e}", modulo="EmailSender", exc_info=True)
+    
         return msg
+
     
     def _clasificar_error(self, excepcion):
         """
@@ -227,12 +241,12 @@ Este es un correo automático, por favor no responder.
                      emails_copia=None, prefijo_asunto="Comprobante - NIT: ",
                      modo_prueba=False, usuario_operativa=None):
         """
-        Envía un correo a un cliente
+        Envía un correo a un cliente (puede tener múltiples destinatarios)
         
         Args:
             nit: NIT del cliente
             nombre_cliente: Nombre del cliente
-            email_destino: Email principal del destinatario
+            email_destino: Email(s) del destinatario (puede ser string con ; o lista)
             archivos_adjuntos: Lista de rutas a archivos PDF
             emails_copia: Lista de emails en copia (CC)
             prefijo_asunto: Prefijo del asunto
@@ -249,11 +263,42 @@ Este es un correo automático, por favor no responder.
                             modulo="EmailSender")
             return False, 'ERROR', mensaje
         
-        # Validar destinatario
-        es_valido, mensaje = Validator.validar_email(email_destino)
-        if not es_valido:
-            self.logger.error(f"Email inválido: {mensaje}", modulo="EmailSender")
+        # Procesar emails de destino (puede venir con ; o ,)
+        if isinstance(email_destino, str):
+            # Separar por ; o ,
+            emails_destino = []
+            for sep in [';', ',']:
+                if sep in email_destino:
+                    emails_destino = [e.strip() for e in email_destino.split(sep) if e.strip()]
+                    break
+            if not emails_destino:
+                emails_destino = [email_destino.strip()]
+        else:
+            emails_destino = email_destino
+        
+        # Validar cada email
+        emails_validos = []
+        emails_invalidos = []
+        
+        for email in emails_destino:
+            es_valido, mensaje_val = Validator.validar_email(email)
+            if es_valido:
+                emails_validos.append(email)
+            else:
+                emails_invalidos.append(email)
+                self.logger.warning(f"Email inválido ignorado: {email}", modulo="EmailSender")
+        
+        if not emails_validos:
+            mensaje = f"No hay emails válidos para enviar"
+            self.logger.error(mensaje, modulo="EmailSender")
             return False, 'ERROR', mensaje
+        
+        # Log de destinatarios
+        if len(emails_validos) > 1:
+            self.logger.info(
+                f"Enviando a {len(emails_validos)} destinatarios: {', '.join(emails_validos)}",
+                modulo="EmailSender"
+            )
         
         # Validar archivos
         if not archivos_adjuntos:
@@ -277,14 +322,14 @@ Este es un correo automático, por favor no responder.
         # Modo prueba: solo simular
         if modo_prueba:
             self.logger.info(
-                f"[MODO PRUEBA] Simulando envío a {nombre_cliente} ({nit}) - {email_destino}",
+                f"[MODO PRUEBA] Simulando envío a {nombre_cliente} ({nit}) - {', '.join(emails_validos)}",
                 modulo="EmailSender"
             )
             
             # Registrar en base de datos como prueba
             if self.db_manager:
                 self.db_manager.registrar_envio(
-                    nit, nombre_cliente, email_destino,
+                    nit, nombre_cliente, ', '.join(emails_validos),
                     ', '.join(emails_copia) if emails_copia else '',
                     len(archivos_validos),
                     ', '.join([os.path.basename(a) for a in archivos_validos]),
@@ -305,14 +350,14 @@ Este es un correo automático, por favor no responder.
                 self.stats['errores'] += 1
                 return False, 'ERROR', error
             
-            # Construir mensaje
+            # Construir mensaje (pasar lista de emails)
             msg = self._construir_mensaje(
-                email_destino, nit, nombre_cliente,
+                emails_validos, nit, nombre_cliente,
                 archivos_validos, emails_copia, prefijo_asunto
             )
             
             # Lista de destinatarios (To + CC)
-            destinatarios = [email_destino]
+            destinatarios = emails_validos[:]  # Copia de la lista
             if emails_copia:
                 destinatarios.extend(emails_copia)
             

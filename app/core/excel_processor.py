@@ -137,7 +137,7 @@ class ExcelProcessor:
                     nombre = str(row[columnas['nombre']]).strip()
                     email = str(row[columnas['email']]).strip()
                     
-                    # Saltar filas vacías
+                    # Saltara filas vacías
                     if not nit or nit.lower() in ['nan', 'none', '']:
                         continue
                     

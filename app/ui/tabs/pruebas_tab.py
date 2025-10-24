@@ -34,7 +34,7 @@ class PruebasTab(QWidget):
             "Los envíos de prueba no envían correos reales."
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("padding: 10px; background-color: #fff3cd; border-radius: 5px;")
+        desc.setStyleSheet("padding: 10px; background-color: #fff3cd; border-radius: 5px; color: #000;")
         layout.addWidget(desc)
         
         # Grupo: Estado actual
@@ -107,6 +107,7 @@ class PruebasTab(QWidget):
                 border: 2px solid #28a745;
                 border-radius: 5px;
                 font-size: 14px;
+                color: #000;
             """)
         else:
             self.label_estado.setText(
@@ -119,6 +120,7 @@ class PruebasTab(QWidget):
                 border: 2px solid #dc3545;
                 border-radius: 5px;
                 font-size: 14px;
+                color: #000;
             """)
     
     def _ir_a_configuracion(self):
