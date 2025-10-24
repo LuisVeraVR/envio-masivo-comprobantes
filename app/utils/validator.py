@@ -1,5 +1,6 @@
 """
-Validadores para datos de entrada del sistema
+Validadores para datos de entrada del sistema - VERSIÓN MEJORADA
+Soporta NITs empresariales (8-9 dígitos) y Cédulas (7-10 dígitos)
 """
 
 import re
@@ -14,9 +15,10 @@ class Validator:
         r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     )
     
-    # Expresión regular para validar NIT colombiano
-    # Formato: 8-9 dígitos + guion + dígito verificador (ej: 12345678-9 o 123456789-0)
-    NIT_REGEX = re.compile(r'^\d{8,10}-?\d$')
+    # Expresión regular para validar NIT/Cédula colombiano
+    # MEJORADO: Ahora acepta 7-10 dígitos (cédulas y NITs)
+    # Formato: 7-10 dígitos + opcional guion + dígito verificador
+    NIT_REGEX = re.compile(r'^\d{7,10}-?\d?$')
     
     @staticmethod
     def validar_email(email: str) -> Tuple[bool, str]:
@@ -85,26 +87,30 @@ class Validator:
     @staticmethod
     def validar_nit(nit: str, validar_digito: bool = False) -> Tuple[bool, str]:
         """
-        Valida un NIT colombiano
+        Valida un NIT/Cédula colombiano
+        
+        MEJORADO: Ahora acepta:
+        - NITs empresariales: 8-9 dígitos (ej: 80003512, 900219353)
+        - Cédulas: 7-10 dígitos (ej: 31404561, 1085245654)
+        - Formato con guion: 12345678-9
         
         Args:
-            nit: NIT a validar
+            nit: NIT/Cédula a validar
             validar_digito: Si True, valida el dígito verificador (opcional)
             
         Returns:
             Tupla (es_valido, mensaje_error)
         """
         if not nit:
-            return False, "El NIT no puede estar vacío"
+            return False, "El NIT/Cédula no puede estar vacío"
         
         nit = str(nit).strip()
         
-        # Aceptar NITs con 8, 9 o 10 dígitos (con o sin guion)
-        import re
+        # Aceptar NITs/Cédulas con 7-10 dígitos (con o sin guion)
         if '-' in nit:
-            # Formato con guion: 12345678-9 o 123456789-0
-            if not re.match(r'^\d{8,9}-\d$', nit):
-                return False, f"NIT con guion inválido: {nit}"
+            # Formato con guion: 12345678-9 o 1085245654-3
+            if not re.match(r'^\d{7,10}-\d$', nit):
+                return False, f"NIT/Cédula con guion inválido: {nit}"
             
             # Si validar_digito es True, validar el verificador
             if validar_digito:
@@ -115,11 +121,11 @@ class Validator:
                 # Calcular verificador
                 digito_calculado = Validator._calcular_digito_verificador(numero)
                 if int(digito_calculado) != digito_verificador_dado:
-                    return False, f"NIT inválido: dígito verificador incorrecto"
+                    return False, f"NIT/Cédula inválido: dígito verificador incorrecto"
         else:
-            # Sin guion: debe tener 8, 9 o 10 dígitos
-            if not re.match(r'^\d{8,10}$', nit):
-                return False, f"NIT debe tener entre 8 y 10 dígitos: {nit}"
+            # Sin guion: debe tener 7-10 dígitos
+            if not re.match(r'^\d{7,10}$', nit):
+                return False, f"NIT/Cédula debe tener entre 7 y 10 dígitos: {nit}"
         
         return True, ""
     
@@ -129,7 +135,7 @@ class Validator:
         Calcula el dígito verificador de un NIT colombiano
         
         Args:
-            numero: Número del NIT (8 o 9 dígitos)
+            numero: Número del NIT (7-10 dígitos)
             
         Returns:
             Dígito verificador calculado
@@ -148,46 +154,75 @@ class Validator:
     @staticmethod
     def nits_coinciden(nit1: str, nit2: str) -> bool:
         """
-        Compara dos NITs (solo los números, sin guion ni verificador)
+        Compara dos NITs/Cédulas (solo los números, sin guion ni verificador)
+        
+        MEJORADO: Ahora hace comparación flexible:
+        - 1085245654 == 108524565 (con/sin último dígito)
+        - 80003512 == 800035120 (con/sin último dígito)
         
         Args:
-            nit1: Primer NIT
-            nit2: Segundo NIT
+            nit1: Primer NIT/Cédula
+            nit2: Segundo NIT/Cédula
             
         Returns:
-            True si los NITs coinciden
+            True si los NITs/Cédulas coinciden
         """
         if not nit1 or not nit2:
             return False
         
-        # Normalizar ambos (solo números)
+        # Normalizar ambos (solo números, SIN eliminar último dígito)
         nit1_norm = Validator.normalizar_nit(nit1)
         nit2_norm = Validator.normalizar_nit(nit2)
         
         # Comparar directamente
-        return nit1_norm == nit2_norm
+        if nit1_norm == nit2_norm:
+            return True
+        
+        # Comparación flexible: uno puede ser el otro sin el último dígito
+        # Ejemplo: 1085245654 vs 108524565
+        if len(nit1_norm) == 10 and nit1_norm[:-1] == nit2_norm:
+            return True
+        if len(nit2_norm) == 10 and nit2_norm[:-1] == nit1_norm:
+            return True
+        
+        return False
     
     @staticmethod
     def normalizar_nit(nit: str) -> str:
         """
-        Normaliza un NIT quitando guiones y caracteres no numéricos.
-        NO elimina el último dígito salvo que haya evidencia de que es DV (guion).
+        Normaliza un NIT/Cédula quitando guiones y caracteres no numéricos.
+        
+        IMPORTANTE: NO elimina el último dígito automáticamente
+        Solo elimina el dígito después del guion si hay guion explícito
+        
+        Args:
+            nit: NIT/Cédula a normalizar
+            
+        Returns:
+            NIT/Cédula normalizado (solo dígitos)
         """
-        import re
         if not nit:
             return ""
+        
         nit = str(nit).strip()
-    
-        # Si tiene guion, tomar solo la parte antes del guion (asumimos DV después del guion)
+        
+        # Si viene como float (ej: "900554896.0"), convertir a entero
+        if '.' in nit:
+            try:
+                # Convertir a float primero, luego a int para eliminar decimales
+                nit = str(int(float(nit)))
+            except (ValueError, OverflowError):
+                # Si falla la conversión, continuar con el valor original
+                pass
+            
+        # Si tiene guion, tomar solo la parte antes del guion (DV)
         if '-' in nit:
             nit = nit.split('-')[0]
-    
+        
         # Quitar todo excepto dígitos
         nit = re.sub(r'\D', '', nit)
-    
-        # Ya NO quitamos el último dígito automáticamente cuando hay 10
+        
         return nit
-
     
     @staticmethod
     def validar_archivo_excel(ruta_archivo: str) -> Tuple[bool, str]:
@@ -255,11 +290,11 @@ class Validator:
     @staticmethod
     def validar_nombre_archivo_pdf(nombre_archivo: str, nit_esperado: str = None) -> Tuple[bool, str]:
         """
-        Valida que un nombre de archivo PDF sea válido y coincida con el NIT esperado
+        Valida que un nombre de archivo PDF sea válido y coincida con el NIT/Cédula esperado
         
         Args:
             nombre_archivo: Nombre del archivo
-            nit_esperado: NIT que debería estar en el nombre (opcional)
+            nit_esperado: NIT/Cédula que debería estar en el nombre (opcional)
             
         Returns:
             Tupla (es_valido, mensaje_error)
@@ -274,25 +309,25 @@ class Validator:
         if extension != '.pdf':
             return False, f"El archivo no es un PDF: {nombre_archivo}"
         
-        # Si se proporciona NIT esperado, verificar que esté en el nombre
+        # Si se proporciona NIT/Cédula esperado, verificar que esté en el nombre
         if nit_esperado:
             nit_normalizado = Validator.normalizar_nit(nit_esperado)
             nit_sin_guion = nit_normalizado.replace('-', '')
             
             # Buscar el NIT en el nombre del archivo (con o sin guion)
             if nit_normalizado not in nombre_archivo and nit_sin_guion not in nombre_archivo:
-                return False, f"El archivo {nombre_archivo} no contiene el NIT {nit_esperado}"
+                return False, f"El archivo {nombre_archivo} no contiene el NIT/Cédula {nit_esperado}"
         
         return True, ""
     
     @staticmethod
     def validar_asunto_con_nit(asunto: str, nit: str) -> Tuple[bool, str]:
         """
-        Valida que un asunto de correo contenga el NIT
+        Valida que un asunto de correo contenga el NIT/Cédula
         
         Args:
             asunto: Asunto del correo
-            nit: NIT que debe estar en el asunto
+            nit: NIT/Cédula que debe estar en el asunto
             
         Returns:
             Tupla (es_valido, mensaje_error)
@@ -301,20 +336,20 @@ class Validator:
             return False, "El asunto no puede estar vacío"
         
         if not nit:
-            return False, "El NIT no puede estar vacío"
+            return False, "El NIT/Cédula no puede estar vacío"
         
         nit_normalizado = Validator.normalizar_nit(nit)
         nit_sin_guion = nit_normalizado.replace('-', '')
         
         # Verificar que el NIT esté en el asunto (con o sin guion)
         if nit_normalizado not in asunto and nit_sin_guion not in asunto:
-            return False, f"El asunto debe contener el NIT: {nit_normalizado}"
+            return False, f"El asunto debe contener el NIT/Cédula: {nit_normalizado}"
         
         return True, ""
     
     @staticmethod
     def validar_configuracion_smtp(servidor: str, puerto: int, usuario: str, password: str) -> Tuple[bool, str]:
-        """s
+        """
         Valida la configuración SMTP
         
         Args:

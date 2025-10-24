@@ -133,11 +133,24 @@ class ExcelProcessor:
             
             for index, row in df.iterrows():
                 try:
-                    nit = str(row[columnas['nit']]).strip()
-                    nombre = str(row[columnas['nombre']]).strip()
-                    email = str(row[columnas['email']]).strip()
+                    # Obtener valores de las columnas
+                    nit_raw = row[columnas['nit']]
+                    nombre_raw = row[columnas['nombre']]
+                    email_raw = row[columnas['email']]
                     
-                    # Saltara filas vacías
+                    # Convertir NIT correctamente (manejar float)
+                    if pd.notna(nit_raw) and isinstance(nit_raw, (int, float)):
+                        nit = str(int(nit_raw))
+                    else:
+                        nit = str(nit_raw).strip()
+                    
+                    # Convertir nombre
+                    nombre = str(nombre_raw).strip() if pd.notna(nombre_raw) else ""
+                    
+                    # Convertir email
+                    email = str(email_raw).strip() if pd.notna(email_raw) else ""
+                    
+                    # Saltar filas vacías
                     if not nit or nit.lower() in ['nan', 'none', '']:
                         continue
                     
@@ -152,10 +165,19 @@ class ExcelProcessor:
                     # Normalizar NIT
                     nit = Validator.normalizar_nit(nit)
                     
-                    # Validar Email
-                    es_valido_email, mensaje_email = Validator.validar_email(email)
+                    # ✅ CORRECCIÓN: Validar lista de emails (soporta múltiples emails)
+                    es_valido_email, mensaje_email, lista_emails = Validator.validar_lista_emails(email)
                     if not es_valido_email:
                         error = f"Fila {index + 2}: {mensaje_email}"
+                        self.errores.append(error)
+                        registros_con_error += 1
+                        continue
+                    
+                    # Si hay emails válidos, reunirlos con punto y coma
+                    if lista_emails:
+                        email = "; ".join(lista_emails)
+                    else:
+                        error = f"Fila {index + 2}: No se encontraron emails válidos"
                         self.errores.append(error)
                         registros_con_error += 1
                         continue
@@ -171,7 +193,7 @@ class ExcelProcessor:
                     cliente = {
                         'nit': nit,
                         'nombre': nombre,
-                        'email': email,
+                        'email': email,  # Ahora puede contener múltiples emails separados por "; "
                         'fila': index + 2  # +2 porque index empieza en 0 y hay fila de encabezados
                     }
                     
@@ -185,10 +207,11 @@ class ExcelProcessor:
                     self.logger.error(error, modulo="ExcelProcessor", exc_info=True)
             
             # Log del procesamiento
-            self.logger.log_procesamiento_excel(
-                os.path.basename(ruta_excel),
-                registros_procesados,
-                registros_con_error
+            self.logger.info(
+                f"Procesamiento Excel completado: {os.path.basename(ruta_excel)} | "
+                f"Registros procesados: {registros_procesados} | "
+                f"Registros con error: {registros_con_error}",
+                modulo="ExcelProcessor"
             )
             
             if registros_procesados == 0:
