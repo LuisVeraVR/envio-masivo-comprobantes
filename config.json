@@ -7,7 +7,7 @@
     "port": 587,
     "use_tls": true,
     "username": "inteligenciadenegocios@correagro.com",
-    "password_encrypted": "Z0FBQUFBQm8tcGhPeUVqYmRqd0R6TGFaTWZBUFZqSG9ONGota293WlRqOG1QMk41RG40dmtmSjZKMjZ6c3hOV2ZrVkEybW9SZ2I4X042TFgxUFZDeVJrSzRfQ19xTTIzNzFXWDJUdi1TZllRRWlleVdvMFRoZTg9"
+    "password_encrypted": "Z0FBQUFBQm9fLW9MMDh0WkVnSkRiSWhxT1A3ektxMklwN0d2TXBwdkFHNlh4TzBjeWpmcXhDUmM4aG9aTmtsR2UtQ3B2RjE3WUhxYkdTcnlxelZTVHlwUUpJWGtZX2lUTWl2WlRrZnFvTUEyNm5xUzhsQkxtRTA9"
   },
   "email": {
     "nit_required_in_subject": true,
@@ -16,7 +16,7 @@
     "emails_copia": []
   },
   "test_mode": {
-    "enabled": true,
+    "enabled": false,
     "test_email": "inteligenciadenegocios@correagro.com"
   },
   "paths": {

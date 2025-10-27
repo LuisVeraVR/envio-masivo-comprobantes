@@ -1,12 +1,14 @@
 """
 Pestaña de Configuración
 Permite a las operativas configurar SMTP, emails en copia y modo de pruebas
+MEJORADO: Con indicadores de progreso y ayuda para contraseñas
 """
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
                              QLabel, QLineEdit, QSpinBox, QCheckBox, QPushButton,
-                             QTextEdit, QMessageBox, QFormLayout)
-from PyQt6.QtCore import pyqtSignal, Qt
+                             QTextEdit, QMessageBox, QFormLayout, QProgressDialog)
+from PyQt6.QtCore import pyqtSignal, Qt, QTimer
+from PyQt6.QtGui import QCursor
 
 
 class ConfiguracionTab(QWidget):
@@ -66,16 +68,13 @@ class ConfiguracionTab(QWidget):
         layout.addStretch()
     
     def _crear_grupo_smtp(self):
-        """Crea el grupo de configuración SMTP"""
-        from PyQt6.QtWidgets import QFormLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, QSpinBox, QCheckBox
-    
+        """Crea el grupo de configuración SMTP con ayuda mejorada"""
         grupo = QGroupBox("📧 Configuración de Correo SMTP")
     
-        # usa un nombre que NO choque con otros 'layout'
         form_layout = QFormLayout()
     
         self.txt_servidor = QLineEdit()
-        self.txt_servidor.setPlaceholderText("Ej: smtp.gmail.com")
+        self.txt_servidor.setPlaceholderText("Ej: smtp.gmail.com o smtp.office365.com")
         form_layout.addRow("Servidor SMTP:", self.txt_servidor)
     
         self.spin_puerto = QSpinBox()
@@ -93,7 +92,7 @@ class ConfiguracionTab(QWidget):
     
         self.txt_password = QLineEdit()
         self.txt_password.setEchoMode(QLineEdit.EchoMode.Password)
-        self.txt_password.setPlaceholderText("Contraseña (normal o de aplicación)")
+        self.txt_password.setPlaceholderText("Contraseña o Contraseña de Aplicación")
     
         password_layout = QHBoxLayout()
         password_layout.addWidget(self.txt_password)
@@ -106,14 +105,16 @@ class ConfiguracionTab(QWidget):
     
         form_layout.addRow("Contraseña:", password_layout)
     
-        # Texto de ayuda claro (contraseña normal o de aplicación)
+        # ✅ AYUDA MEJORADA SOBRE CONTRASEÑAS
         ayuda = QLabel(
-            "<small>Puedes usar <b>tu contraseña normal</b> o "
-            "<b>una contraseña de aplicación</b> según tu proveedor.<br>"
-            "Gmail casi siempre requiere contraseña de aplicación con 2FA; "
-            "en servidores corporativos suele funcionar la contraseña normal.</small>"
+            "<small><b>💡 IMPORTANTE:</b><br>"
+            "<b>Office365/Outlook:</b> Requiere <u>contraseña de aplicación</u> con 2FA activo<br>"
+            "<b>Gmail:</b> Requiere <u>contraseña de aplicación</u> con verificación en 2 pasos<br>"
+            "<b>Servidores corporativos:</b> Generalmente funciona con contraseña normal<br><br>"
+            "Si falla, prueba con contraseña de aplicación (ver ayuda en 'Probar Conexión')</small>"
         )
         ayuda.setWordWrap(True)
+        ayuda.setStyleSheet("background-color: #fff3cd; padding: 8px; border-radius: 4px; border: 1px solid #ffc107;")
         form_layout.addRow("", ayuda)
     
         grupo.setLayout(form_layout)
@@ -256,16 +257,17 @@ class ConfiguracionTab(QWidget):
         self.configuracion_actualizada.emit()
     
     def _probar_conexion(self):
-        """Prueba la conexión SMTP"""
+        """Prueba la conexión SMTP con indicador de progreso y ayuda mejorada"""
         from app.core.email_sender import EmailSender
         from app.utils.validator import Validator
+        from PyQt6.QtWidgets import QApplication
         
         servidor = self.txt_servidor.text().strip()
         puerto = self.spin_puerto.value()
         usuario = self.txt_usuario.text().strip()
         password = self.txt_password.text()
         
-        es_valido, mensaje = Validator.validar_configuracion_smtp(servidor, puerto, usuario, password)
+        es_valido, mensaje = Validator.validar_configuracion_smtp(servidor, puerto, usuario, password or "x")
         if not es_valido:
             QMessageBox.warning(self, "Configuración inválida", mensaje)
             return
@@ -279,13 +281,147 @@ class ConfiguracionTab(QWidget):
             'from_name': 'Sistema de Comprobantes'
         }
         
+        # ✅ CREAR PROGRESS DIALOG
+        progress = QProgressDialog(
+            "Conectando al servidor SMTP...\nEsto puede tomar unos segundos.",
+            None,  # Sin botón cancelar
+            0, 0,  # Modo indeterminado
+            self
+        )
+        progress.setWindowTitle("⏳ Probando Conexión")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setCancelButton(None)
+        progress.setMinimumWidth(400)
+        progress.show()
+        
+        # Procesar eventos para mostrar el diálogo
+        QApplication.processEvents()
+        
+        # Cambiar cursor
+        self.setCursor(QCursor(Qt.CursorShape.WaitCursor))
+        
+        resultado_exito = False
+        resultado_mensaje = ""
+        
         try:
-            sender = EmailSender(smtp_config, self.db, self.logger)
-            exito, msg = sender.probar_conexion()
+            progress.setLabelText("🔐 Autenticando con el servidor...\nPor favor espere...")
+            QApplication.processEvents()
             
-            if exito:
-                QMessageBox.information(self, "Conexión exitosa", f"✓ {msg}\n\nLa configuración SMTP es correcta.")
-            else:
-                QMessageBox.critical(self, "Error de conexión", f"✗ {msg}")
+            sender = EmailSender(smtp_config, self.db, self.logger)
+            resultado_exito, resultado_mensaje = sender.probar_conexion()
+            
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Error al probar conexión: {str(e)}")
+            resultado_exito = False
+            resultado_mensaje = str(e)
+        finally:
+            progress.close()
+            self.unsetCursor()
+        
+        # ✅ MOSTRAR RESULTADO CON AYUDA CONTEXTUAL
+        if resultado_exito:
+            QMessageBox.information(
+                self, 
+                "✅ Conexión Exitosa", 
+                f"<b>¡Perfecto!</b><br><br>"
+                f"{resultado_mensaje}<br><br>"
+                f"<b>La configuración SMTP es correcta.</b><br>"
+                f"Puedes guardar y comenzar a usar el sistema."
+            )
+        else:
+            # Analizar el tipo de error
+            error_bajo = resultado_mensaje.lower()
+            
+            if any(x in error_bajo for x in ['autenticación', 'authentication', 'login', 'username', 'password', '535']):
+                # ✅ ERROR DE AUTENTICACIÓN - DAR AYUDA ESPECÍFICA
+                self._mostrar_ayuda_autenticacion(resultado_mensaje, servidor)
+            else:
+                # Otro tipo de error
+                QMessageBox.critical(
+                    self, 
+                    "❌ Error de Conexión", 
+                    f"<b>Error al conectar:</b><br><br>"
+                    f"{resultado_mensaje}<br><br>"
+                    f"<b>Verifica:</b><br>"
+                    f"• Servidor y puerto correctos<br>"
+                    f"• Conexión a internet<br>"
+                    f"• Firewall no está bloqueando<br>"
+                    f"• El servidor SMTP está disponible"
+                )
+    
+    def _mostrar_ayuda_autenticacion(self, error_mensaje, servidor):
+        """Muestra ayuda específica para errores de autenticación"""
+        # Detectar proveedor
+        proveedor = "desconocido"
+        if "office365" in servidor.lower() or "outlook" in servidor.lower():
+            proveedor = "office365"
+        elif "gmail" in servidor.lower():
+            proveedor = "gmail"
+        
+        # Construir mensaje de ayuda
+        mensaje = f"<h3>❌ Error de Autenticación</h3>"
+        mensaje += f"<p><b>Error del servidor:</b><br>{error_mensaje}</p>"
+        mensaje += "<hr>"
+        
+        if proveedor == "office365":
+            mensaje += """
+<h4>💡 Solución para Office365/Outlook:</h4>
+<ol>
+<li><b>Activa la autenticación de dos factores (2FA)</b></li>
+<li><b>Genera una contraseña de aplicación:</b>
+   <ul>
+   <li>Ve a: <a href='https://account.microsoft.com/security'>account.microsoft.com/security</a></li>
+   <li>Selecciona "Opciones de seguridad avanzadas"</li>
+   <li>En "Contraseñas de aplicación", crea una nueva</li>
+   <li>Copia esa contraseña (sin espacios)</li>
+   </ul>
+</li>
+<li><b>Usa esa contraseña aquí</b> (no tu contraseña normal)</li>
+</ol>
+<p><b>Nota:</b> Office365 <u>requiere</u> contraseña de aplicación para SMTP.</p>
+"""
+        elif proveedor == "gmail":
+            mensaje += """
+<h4>💡 Solución para Gmail:</h4>
+<ol>
+<li><b>Activa la verificación en 2 pasos</b></li>
+<li><b>Genera una contraseña de aplicación:</b>
+   <ul>
+   <li>Ve a: <a href='https://myaccount.google.com/apppasswords'>myaccount.google.com/apppasswords</a></li>
+   <li>Selecciona "Correo" y "Windows Computer"</li>
+   <li>Copia la contraseña generada (16 caracteres)</li>
+   </ul>
+</li>
+<li><b>Usa esa contraseña aquí</b> (no tu contraseña normal)</li>
+</ol>
+<p><b>Nota:</b> Gmail <u>requiere</u> contraseña de aplicación.</p>
+"""
+        else:
+            mensaje += """
+<h4>💡 Soluciones generales:</h4>
+<ul>
+<li><b>Verifica usuario y contraseña</b></li>
+<li><b>Prueba con contraseña de aplicación:</b>
+   <ul>
+   <li>Activa 2FA en tu cuenta</li>
+   <li>Genera una contraseña de aplicación</li>
+   <li>Úsala aquí en lugar de tu contraseña normal</li>
+   </ul>
+</li>
+<li><b>Contacta al administrador IT</b> si es servidor corporativo</li>
+</ul>
+"""
+        
+        mensaje += "<hr><p><small><b>¿Qué es una contraseña de aplicación?</b><br>"
+        mensaje += "Es una contraseña especial de 16 caracteres que generas para aplicaciones "
+        mensaje += "que no soportan verificación en 2 pasos. Es más segura que tu contraseña normal.</small></p>"
+        
+        # Mostrar en un QMessageBox con HTML
+        msg_box = QMessageBox(self)
+        msg_box.setIcon(QMessageBox.Icon.Warning)
+        msg_box.setWindowTitle("Error de Autenticación SMTP")
+        msg_box.setTextFormat(Qt.TextFormat.RichText)
+        msg_box.setText(mensaje)
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg_box.setMinimumWidth(600)
+        msg_box.exec()
