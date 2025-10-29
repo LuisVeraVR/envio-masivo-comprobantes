@@ -20,6 +20,7 @@ from app.version import __version__, __app_name__
 from app.config import ConfigManager
 from app.database.models import Database
 from app.utils.logger import get_logger
+from app.utils.updater import AutoUpdater
 
 
 class MainWindow(QMainWindow):
@@ -42,6 +43,9 @@ class MainWindow(QMainWindow):
         self._crear_menu()
         self._crear_interfaz()
         self._crear_barra_estado()
+
+        # ✅ NUEVO: Inicializar sistema de actualizaciones
+        self._inicializar_actualizaciones()
 
         # Verificar configuración inicial
         QTimer.singleShot(100, self._verificar_configuracion_inicial)
@@ -85,11 +89,20 @@ class MainWindow(QMainWindow):
 
         # Menú Ayuda
         menu_ayuda = menubar.addMenu("A&yuda")
-
+    
+        # ✅ NUEVO: Opción de buscar actualizaciones
+        if hasattr(self, 'updater') and self.updater:
+            accion_actualizar = QAction("🔄 Buscar Actualizaciones", self)
+            accion_actualizar.triggered.connect(
+                lambda: self.updater.check_for_updates(silent=False)
+            )
+            menu_ayuda.addAction(accion_actualizar)
+            menu_ayuda.addSeparator()
+    
         accion_acerca = QAction("Acerca de...", self)
         accion_acerca.triggered.connect(self._mostrar_acerca_de)
         menu_ayuda.addAction(accion_acerca)
-
+    
         accion_manual = QAction("Manual de usuario", self)
         accion_manual.triggered.connect(self._mostrar_manual)
         menu_ayuda.addAction(accion_manual)
@@ -306,3 +319,32 @@ class MainWindow(QMainWindow):
             event.accept()
         else:
             event.ignore()
+            
+    def _inicializar_actualizaciones(self):
+        """Inicializa el sistema de actualizaciones automáticas"""
+        github_repo = self.config.get("update.github_repo", "")
+
+        if github_repo:
+            try:
+                self.updater = AutoUpdater(self, __version__, github_repo)
+
+                # Verificar actualizaciones al iniciar (después de 3 segundos)
+                if self.config.get("update.check_on_startup", True):
+                    QTimer.singleShot(3000, lambda: self.updater.check_for_updates(silent=True))
+
+                self.logger.info(
+                    f"Sistema de actualizaciones inicializado: {github_repo}",
+                    modulo="MainWindow"
+                )
+            except Exception as e:
+                self.logger.error(
+                    f"Error al inicializar actualizaciones: {e}",
+                    modulo="MainWindow",
+                    exc_info=True
+                )
+        else:
+            self.logger.warning(
+                "Sistema de actualizaciones no configurado (falta github_repo)",
+                modulo="MainWindow"
+            )
+            self.updater = None
