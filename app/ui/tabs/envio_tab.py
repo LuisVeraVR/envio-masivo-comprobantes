@@ -198,6 +198,20 @@ class EnvioTab(QWidget):
         self.label_excel = QLabel("❌ Excel no cargado")
         excel_layout.addWidget(self.label_excel)
         excel_layout.addStretch()
+
+        # Botón para descargar plantilla
+        btn_plantilla = QPushButton("📥 Descargar Plantilla")
+        btn_plantilla.setToolTip("Descarga una plantilla de Excel compatible con el sistema")
+        btn_plantilla.clicked.connect(self._descargar_plantilla)
+        btn_plantilla.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745; color: white; font-weight: bold;
+                border-radius: 3px; padding: 5px 15px;
+            }
+            QPushButton:hover { background-color: #218838; }
+        """)
+        excel_layout.addWidget(btn_plantilla)
+
         btn_excel = QPushButton("📊 Cargar Excel")
         btn_excel.clicked.connect(self._cargar_excel)
         excel_layout.addWidget(btn_excel)
@@ -224,6 +238,51 @@ class EnvioTab(QWidget):
         layout.addWidget(self.label_resumen)
         grupo.setLayout(layout)
         return grupo
+
+    def _descargar_plantilla(self):
+        """Descarga la plantilla de Excel para correos de clientes"""
+        from app.templates import TemplateGenerator
+
+        # Obtener nombre por defecto
+        nombre_default = TemplateGenerator.obtener_nombre_plantilla_default()
+
+        # Diálogo para guardar
+        archivo, _ = QFileDialog.getSaveFileName(
+            self,
+            "Guardar Plantilla de Excel",
+            nombre_default,
+            "Archivos Excel (*.xlsx)"
+        )
+
+        if not archivo:
+            return
+
+        # Asegurar extensión .xlsx
+        if not archivo.lower().endswith('.xlsx'):
+            archivo += '.xlsx'
+
+        # Generar plantilla
+        exito, mensaje = TemplateGenerator.crear_plantilla_correos(archivo)
+
+        if exito:
+            QMessageBox.information(
+                self,
+                "Plantilla Descargada",
+                f"✅ {mensaje}\n\n"
+                "La plantilla incluye:\n"
+                "• Columnas correctamente configuradas (NIT, Nombre, Email)\n"
+                "• Ejemplos de datos\n"
+                "• Instrucciones detalladas de uso\n\n"
+                "Puede editar la plantilla y agregar sus propios datos."
+            )
+            self.logger.info(f"Plantilla descargada: {archivo}", modulo="EnvioTab")
+        else:
+            QMessageBox.critical(
+                self,
+                "Error al Crear Plantilla",
+                f"❌ {mensaje}"
+            )
+            self.logger.error(f"Error al crear plantilla: {mensaje}", modulo="EnvioTab")
 
     def _cargar_excel(self):
         archivo, _ = QFileDialog.getOpenFileName(
