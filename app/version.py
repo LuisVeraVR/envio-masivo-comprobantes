@@ -2,13 +2,18 @@
 Control de versión de la aplicación
 """
 
-__version__ = "1.1.3"
+__version__ = "1.1.4"
 __author__ = "Luis Vera"
 __app_name__ = "Sistema Envío Comprobantes"
 __app_id__ = "comprobantes-app"
 
 # Historial de versiones
 VERSION_HISTORY = {
+    "1.1.4": [
+        "Actualización automática de versión",
+        "Fecha: 2025-10-30"
+    ],
+
     "1.1.3": [
         "Actualización automática de versión",
         "Fecha: 2025-10-30"

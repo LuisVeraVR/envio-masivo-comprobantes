@@ -3,7 +3,7 @@ echo ========================================
 echo   EMPAQUETADO PARA DISTRIBUCION
 echo ========================================
 
-set VERSION=1.1.3
+set VERSION=1.1.4
 set PACKAGE_NAME=SistemaEnvioComprobantes_v%VERSION%
 
 echo.
