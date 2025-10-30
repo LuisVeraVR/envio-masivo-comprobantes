@@ -296,7 +296,33 @@ class ZipHandler:
                                 f"  ... y {len(pdfs_sin_nit) - 10} más", modulo="ZipHandler"
                             )
 
+                # ✅ NUEVO: Detectar NITs similares que puedan causar confusión
+                conflictos = self.detectar_nits_similares()
+                if conflictos and self.logger:
+                    self.logger.warning(
+                        f"=== ⚠️ {len(conflictos)} PARES DE NITs SIMILARES DETECTADOS ===",
+                        modulo="ZipHandler"
+                    )
+                    self.logger.warning(
+                        "Esto puede causar que se asignen archivos a clientes incorrectos.",
+                        modulo="ZipHandler"
+                    )
+                    for i, conf in enumerate(conflictos[:5], 1):
+                        self.logger.warning(
+                            f"  {i}. NIT corto: {conf['nit_corto']} ({len(conf['archivos_corto'])} archivos) | "
+                            f"NIT largo: {conf['nit_largo']} ({len(conf['archivos_largo'])} archivos)",
+                            modulo="ZipHandler"
+                        )
+                    if len(conflictos) > 5:
+                        self.logger.warning(f"  ... y {len(conflictos) - 5} pares más", modulo="ZipHandler")
+                    self.logger.warning(
+                        "RECOMENDACIÓN: Verifique que los NITs en el Excel coincidan EXACTAMENTE con los del ZIP",
+                        modulo="ZipHandler"
+                    )
+
                 mensaje = f"Procesados {len(self.archivos_extraidos)} PDFs, {len(self.archivos_por_nit)} NITs únicos"
+                if conflictos:
+                    mensaje += f" (⚠️ {len(conflictos)} NITs similares detectados)"
                 return True, mensaje, self.archivos_por_nit
 
         except Exception as e:
@@ -307,9 +333,17 @@ class ZipHandler:
 
     # ========================= Búsquedas por NIT / Nombre =======================
 
-    def obtener_archivos_por_nit(self, nit):
+    def obtener_archivos_por_nit(self, nit, modo_estricto=True):
         """
-        Devuelve los PDFs asociados al NIT. Usa llaves espejo para mayor tolerancia.
+        Devuelve los PDFs asociados al NIT.
+
+        Args:
+            nit: NIT a buscar
+            modo_estricto: Si es True (por defecto), solo busca coincidencias exactas.
+                          Si es False, usa llaves espejo para mayor tolerancia.
+
+        Returns:
+            Lista de rutas de archivos PDF asociados al NIT
         """
         n = str(nit or "").strip()
         if not n:
@@ -318,7 +352,12 @@ class ZipHandler:
         if not digits:
             return []
 
-        # Llaves espejo para búsqueda flexible
+        # MODO ESTRICTO (por defecto): Solo búsqueda exacta
+        if modo_estricto:
+            return self.archivos_por_nit.get(digits, [])
+
+        # MODO FLEXIBLE (opcional): Llaves espejo para compatibilidad con dígito verificador
+        # ⚠️ ADVERTENCIA: Este modo puede causar matches incorrectos si hay NITs similares
         keys = {digits}
         if len(digits) == 10:
             keys.add(digits[:-1])  # 10 → 9
@@ -335,27 +374,69 @@ class ZipHandler:
     def buscar_archivos_por_nit_flexible(self, nit_buscado, nombre_cliente=None):
         """
         Busca archivos por NIT de forma flexible y, si falla, por nombre de empresa.
+
+        IMPORTANTE: Esta función se usa como FALLBACK cuando la búsqueda exacta falla.
+        El orden de búsqueda es:
+        1. Búsqueda exacta por NIT
+        2. Búsqueda flexible con llaves espejo (puede causar matches incorrectos)
+        3. Por aparición del número en el nombre del archivo
+        4. Por similitud del nombre de empresa (menos preciso)
+
+        Args:
+            nit_buscado: NIT a buscar
+            nombre_cliente: Nombre del cliente (opcional, para búsqueda por nombre)
+
+        Returns:
+            Lista de rutas de archivos encontrados (puede estar vacía)
         """
         digits = self._only_digits(nit_buscado)
         if digits:
-            # 1) Por llaves espejo
-            archivos = self.obtener_archivos_por_nit(digits)
+            # 1) Búsqueda EXACTA primero
+            archivos = self.obtener_archivos_por_nit(digits, modo_estricto=True)
             if archivos:
+                if self.logger:
+                    self.logger.debug(
+                        f"Match EXACTO encontrado para NIT {digits}: {len(archivos)} archivo(s)",
+                        modulo="ZipHandler"
+                    )
                 return archivos
 
-            # 2) Por aparición del número en el nombre del archivo
+            # 2) Búsqueda flexible con llaves espejo (puede dar falsos positivos)
+            archivos_flexibles = self.obtener_archivos_por_nit(digits, modo_estricto=False)
+            if archivos_flexibles:
+                if self.logger:
+                    self.logger.warning(
+                        f"Match FLEXIBLE para NIT {digits}: {len(archivos_flexibles)} archivo(s) - "
+                        f"⚠️ Verifique que sean correctos",
+                        modulo="ZipHandler"
+                    )
+                return archivos_flexibles
+
+            # 3) Por aparición del número en el nombre del archivo
             candidatos = []
             for ruta in self.archivos_extraidos:
                 nombre = os.path.basename(ruta)
                 if digits in nombre:
                     candidatos.append(ruta)
             if candidatos:
+                if self.logger:
+                    self.logger.warning(
+                        f"Match por SUBSTRING para NIT {digits}: {len(candidatos)} archivo(s) - "
+                        f"⚠️ Verifique que sean correctos",
+                        modulo="ZipHandler"
+                    )
                 return candidatos
 
-        # 3) Por similitud del nombre de empresa
+        # 4) Por similitud del nombre de empresa (menos preciso)
         if nombre_cliente:
             por_nombre = self._buscar_por_nombre_empresa(nombre_cliente)
             if por_nombre:
+                if self.logger:
+                    self.logger.warning(
+                        f"Match por NOMBRE para '{nombre_cliente}': {len(por_nombre)} archivo(s) - "
+                        f"⚠️ VERIFIQUE MANUALMENTE que sean correctos",
+                        modulo="ZipHandler"
+                    )
                 return por_nombre
 
         return []
@@ -393,6 +474,45 @@ class ZipHandler:
         return [archivo for archivo, _ in candidatos]
 
     # ========================= Reportes / Limpieza ==============================
+
+    def detectar_nits_similares(self):
+        """
+        Detecta NITs similares en el ZIP que puedan causar confusión en el matching.
+
+        Busca pares de NITs donde uno es prefijo del otro (ej: 12345678 y 123456789)
+        ya que estos pueden causar matches incorrectos.
+
+        Returns:
+            Lista de tuplas (nit_corto, nit_largo, archivos_corto, archivos_largo)
+        """
+        nits = sorted(self.obtener_todos_los_nits(), key=len)
+        conflictos = []
+
+        for i, nit1 in enumerate(nits):
+            for nit2 in nits[i+1:]:
+                # Si nit1 es prefijo de nit2 o viceversa
+                if nit2.startswith(nit1) or nit1.startswith(nit2):
+                    nit_corto = nit1 if len(nit1) < len(nit2) else nit2
+                    nit_largo = nit2 if len(nit1) < len(nit2) else nit1
+
+                    archivos_corto = [os.path.basename(a) for a in self.archivos_por_nit.get(nit_corto, [])]
+                    archivos_largo = [os.path.basename(a) for a in self.archivos_por_nit.get(nit_largo, [])]
+
+                    conflictos.append({
+                        'nit_corto': nit_corto,
+                        'nit_largo': nit_largo,
+                        'archivos_corto': archivos_corto,
+                        'archivos_largo': archivos_largo
+                    })
+
+                    if self.logger:
+                        self.logger.warning(
+                            f"⚠️ NITs SIMILARES detectados: '{nit_corto}' y '{nit_largo}' - "
+                            f"Esto puede causar confusión en el matching",
+                            modulo="ZipHandler"
+                        )
+
+        return conflictos
 
     def obtener_todos_los_nits(self):
         """Lista de todos los NITs/cédulas indexados"""
