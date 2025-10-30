@@ -14,7 +14,7 @@ from PyQt6.QtCore import Qt
 from app.ui.main_window import MainWindow
 from app.version import __version__, __app_name__
 from app.utils.logger import get_logger
-
+from app.utils.updater import check_and_notify_update 
 
 def verificar_dependencias():
     """Verifica que todas las dependencias estén instaladas"""
@@ -68,6 +68,18 @@ def main():
     except Exception as e:
         QMessageBox.critical(None, "Error", f"Error al inicializar logs:\n{str(e)}")
         sys.exit(1)
+    
+    # ⚠️ VERIFICAR ACTUALIZACIONES AL INICIAR
+    try:
+        logger.info("Verificando actualizaciones disponibles...", modulo="Main")
+        is_updating = check_and_notify_update()
+        if is_updating:
+            # Si se está actualizando, la app se cerrará automáticamente
+            logger.info("Instalando actualización...", modulo="Main")
+            return
+    except Exception as e:
+        logger.warning(f"No se pudo verificar actualizaciones: {e}", modulo="Main")
+        # Continuar con la aplicación aunque falle la verificación
     
     # Crear ventana principal
     try:

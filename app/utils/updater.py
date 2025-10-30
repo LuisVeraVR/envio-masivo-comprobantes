@@ -1,351 +1,303 @@
 """
-Sistema de actualizaciones automáticas desde GitHub
-Verifica y descarga nuevas versiones de la aplicación
+Módulo de Auto-Actualización
+Verifica y descarga actualizaciones desde GitHub Releases
 """
 
 import requests
 import os
-import zipfile
-import tempfile
-import shutil
-import subprocess
 import sys
+import subprocess
+import tempfile
+import logging
 from pathlib import Path
-from packaging import version as pkg_version
-from PyQt6.QtWidgets import QMessageBox, QProgressDialog
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+
+# ==================== CONFIGURACIÓN ====================
+GITHUB_REPO = "LuisVeraVR/envio-masivo-comprobantes"  # ⚠️ CAMBIAR ESTO
+CURRENT_VERSION = "1.1.1"  # ⚠️ Actualizar en cada release
+# =======================================================
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-class UpdateChecker(QThread):
-    """Thread para verificar actualizaciones en segundo plano"""
+class AutoUpdater:
+    """Maneja la verificación e instalación de actualizaciones"""
     
-    # Señales
-    update_available = pyqtSignal(dict)  # info de la actualización
-    no_update = pyqtSignal()
-    error = pyqtSignal(str)
-    
-    def __init__(self, current_version, github_repo):
+    def __init__(self):
+        self.api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+        self.current_version = CURRENT_VERSION
+        
+    def check_for_updates(self):
         """
-        Args:
-            current_version: Versión actual (ej: "1.0.0")
-            github_repo: Repositorio GitHub (ej: "usuario/repo")
+        Verifica si hay una nueva versión disponible
+        
+        Returns:
+            dict: {
+                'available': bool,
+                'version': str,
+                'download_url': str,
+                'release_notes': str,
+                'error': str (opcional)
+            }
         """
-        super().__init__()
-        self.current_version = current_version
-        self.github_repo = github_repo
-        self.api_url = f"https://api.github.com/repos/{github_repo}/releases/latest"
-    
-    def run(self):
-        """Verifica si hay actualizaciones disponibles"""
         try:
-            # Llamar a la API de GitHub
+            logger.info(f"Verificando actualizaciones... Versión actual: {self.current_version}")
+            
             response = requests.get(self.api_url, timeout=10)
-            
-            if response.status_code == 404:
-                self.error.emit("No se encontraron releases en GitHub")
-                return
-            
             response.raise_for_status()
+            
             release_data = response.json()
+            latest_version = release_data['tag_name'].replace('v', '')
             
-            # Extraer información
-            latest_version = release_data['tag_name'].lstrip('v')
-            download_url = None
-            
-            # Buscar el asset .exe o .zip
-            for asset in release_data.get('assets', []):
-                name = asset['name'].lower()
-                if name.endswith('.exe') or name.endswith('.zip'):
-                    download_url = asset['browser_download_url']
-                    break
-            
-            if not download_url:
-                self.error.emit("No se encontró archivo de actualización")
-                return
+            logger.info(f"Última versión en GitHub: {latest_version}")
             
             # Comparar versiones
-            if pkg_version.parse(latest_version) > pkg_version.parse(self.current_version):
-                update_info = {
+            if self._is_newer_version(latest_version):
+                download_url = self._get_exe_download_url(release_data)
+                
+                if not download_url:
+                    return {
+                        'available': False,
+                        'error': 'No se encontró ejecutable en el release'
+                    }
+                
+                return {
+                    'available': True,
                     'version': latest_version,
-                    'url': download_url,
-                    'release_notes': release_data.get('body', ''),
-                    'published_at': release_data.get('published_at', ''),
-                    'size': asset.get('size', 0)
+                    'download_url': download_url,
+                    'release_notes': release_data.get('body', 'Sin descripción')
                 }
-                self.update_available.emit(update_info)
-            else:
-                self.no_update.emit()
-        
-        except requests.RequestException as e:
-            self.error.emit(f"Error de conexión: {str(e)}")
+            
+            return {'available': False}
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error de red al verificar actualizaciones: {e}")
+            return {'available': False, 'error': f'Error de conexión: {e}'}
         except Exception as e:
-            self.error.emit(f"Error inesperado: {str(e)}")
-
-
-class UpdateDownloader(QThread):
-    """Thread para descargar e instalar actualizaciones"""
+            logger.error(f"Error inesperado: {e}")
+            return {'available': False, 'error': str(e)}
     
-    # Señales
-    progress = pyqtSignal(int, int)  # bytes descargados, total
-    finished = pyqtSignal(str)  # ruta del archivo descargado
-    error = pyqtSignal(str)
-    
-    def __init__(self, download_url, filename):
-        super().__init__()
-        self.download_url = download_url
-        self.filename = filename
-        self.temp_dir = tempfile.gettempdir()
-    
-    def run(self):
-        """Descarga el archivo de actualización"""
+    def _is_newer_version(self, latest_version):
+        """Compara versiones (formato: X.Y.Z)"""
         try:
-            response = requests.get(self.download_url, stream=True, timeout=30)
+            current_parts = [int(x) for x in self.current_version.split('.')]
+            latest_parts = [int(x) for x in latest_version.split('.')]
+            
+            return latest_parts > current_parts
+        except:
+            return False
+    
+    def _get_exe_download_url(self, release_data):
+        """Extrae URL del ejecutable .exe del release"""
+        for asset in release_data.get('assets', []):
+            if asset['name'].endswith('.exe'):
+                return asset['browser_download_url']
+        return None
+    
+    def download_and_install(self, download_url, progress_callback=None):
+        """
+        Descarga e instala la actualización
+        
+        Args:
+            download_url (str): URL del ejecutable
+            progress_callback (callable): Función para reportar progreso (opcional)
+        """
+        try:
+            logger.info(f"Descargando actualización desde: {download_url}")
+            
+            # Descargar a archivo temporal
+            temp_dir = tempfile.gettempdir()
+            temp_exe = os.path.join(temp_dir, 'SistemaEnvioComprobantes_new.exe')
+            
+            response = requests.get(download_url, stream=True)
             response.raise_for_status()
             
             total_size = int(response.headers.get('content-length', 0))
             downloaded = 0
             
-            file_path = os.path.join(self.temp_dir, self.filename)
-            
-            with open(file_path, 'wb') as f:
+            with open(temp_exe, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
                         downloaded += len(chunk)
-                        self.progress.emit(downloaded, total_size)
+                        
+                        if progress_callback and total_size > 0:
+                            progress = int((downloaded / total_size) * 100)
+                            progress_callback(progress)
             
-            self.finished.emit(file_path)
-        
+            logger.info("Descarga completada. Preparando instalación...")
+            
+            # Crear script de actualización
+            self._install_update(temp_exe)
+            
         except Exception as e:
-            self.error.emit(f"Error al descargar: {str(e)}")
-
-
-class AutoUpdater:
-    """Gestor principal de actualizaciones automáticas"""
+            logger.error(f"Error durante la actualización: {e}")
+            raise
     
-    def __init__(self, parent, current_version, github_repo):
-        """
-        Args:
-            parent: Widget padre (MainWindow)
-            current_version: Versión actual de la app
-            github_repo: Repositorio GitHub (formato: "usuario/repositorio")
-        """
-        self.parent = parent
-        self.current_version = current_version
-        self.github_repo = github_repo
-    
-    def check_for_updates(self, silent=False):
-        """
-        Verifica si hay actualizaciones disponibles
+    def _install_update(self, new_exe_path):
+        """Crea script batch para reemplazar ejecutable y reiniciar"""
         
-        Args:
-            silent: Si es True, no muestra mensaje cuando no hay actualizaciones
-        """
-        self.silent = silent
-        
-        # Crear y configurar el thread
-        self.checker = UpdateChecker(self.current_version, self.github_repo)
-        self.checker.update_available.connect(self._on_update_available)
-        self.checker.no_update.connect(lambda: self._on_no_update(silent))
-        self.checker.error.connect(self._on_error)
-        
-        # Iniciar verificación
-        if not silent:
-            QMessageBox.information(
-                self.parent,
-                "Buscando actualizaciones",
-                "Verificando si hay nuevas versiones disponibles..."
-            )
-        
-        self.checker.start()
-    
-    def _on_update_available(self, update_info):
-        """Callback cuando hay una actualización disponible"""
-        version = update_info['version']
-        notes = update_info['release_notes']
-        size_mb = update_info['size'] / (1024 * 1024)
-        
-        mensaje = f"""
-<h3>🎉 Nueva versión disponible: v{version}</h3>
-<p><b>Versión actual:</b> v{self.current_version}</p>
-<p><b>Tamaño:</b> {size_mb:.2f} MB</p>
-<hr>
-<h4>Novedades:</h4>
-<p>{notes if notes else 'Ver detalles en GitHub'}</p>
-<hr>
-<p><small><b>Nota:</b> La aplicación se cerrará y reiniciará automáticamente después de actualizar.</small></p>
-"""
-        
-        reply = QMessageBox.question(
-            self.parent,
-            "Actualización Disponible",
-            mensaje,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes
-        )
-        
-        if reply == QMessageBox.StandardButton.Yes:
-            self._download_and_install(update_info)
-    
-    def _on_no_update(self, silent):
-        """Callback cuando no hay actualizaciones"""
-        if not silent:
-            QMessageBox.information(
-                self.parent,
-                "Sin actualizaciones",
-                f"Ya tienes la última versión (v{self.current_version})"
-            )
-    
-    def _on_error(self, error_message):
-        """Callback cuando hay un error"""
-        if not self.silent:
-            QMessageBox.warning(
-                self.parent,
-                "Error al verificar actualizaciones",
-                f"No se pudo verificar actualizaciones:\n{error_message}\n\n"
-                "Verifica tu conexión a internet o intenta más tarde."
-            )
-    
-    def _download_and_install(self, update_info):
-        """Descarga e instala la actualización"""
-        url = update_info['url']
-        filename = os.path.basename(url)
-        
-        # Crear diálogo de progreso
-        progress_dialog = QProgressDialog(
-            "Descargando actualización...",
-            "Cancelar",
-            0, 100,
-            self.parent
-        )
-        progress_dialog.setWindowTitle("Actualizando")
-        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        progress_dialog.setMinimumDuration(0)
-        progress_dialog.setAutoClose(False)
-        
-        # Crear downloader
-        self.downloader = UpdateDownloader(url, filename)
-        
-        def on_progress(downloaded, total):
-            if total > 0:
-                percent = int((downloaded / total) * 100)
-                progress_dialog.setValue(percent)
-                progress_dialog.setLabelText(
-                    f"Descargando actualización...\n"
-                    f"{downloaded / (1024*1024):.2f} MB / {total / (1024*1024):.2f} MB"
-                )
-        
-        def on_finished(file_path):
-            progress_dialog.close()
-            self._install_update(file_path, filename)
-        
-        def on_error(error_msg):
-            progress_dialog.close()
-            QMessageBox.critical(
-                self.parent,
-                "Error de descarga",
-                f"No se pudo descargar la actualización:\n{error_msg}"
-            )
-        
-        # Conectar señales
-        self.downloader.progress.connect(on_progress)
-        self.downloader.finished.connect(on_finished)
-        self.downloader.error.connect(on_error)
-        
-        # Manejar cancelación
-        progress_dialog.canceled.connect(self.downloader.terminate)
-        
-        # Iniciar descarga
-        self.downloader.start()
-    
-    def _install_update(self, file_path, filename):
-        """Instala la actualización descargada"""
-        try:
-            if filename.endswith('.exe'):
-                # Actualización .exe directa
-                self._install_exe(file_path)
-            elif filename.endswith('.zip'):
-                # Actualización .zip (descomprimir y reemplazar)
-                self._install_zip(file_path)
-            else:
-                QMessageBox.warning(
-                    self.parent,
-                    "Formato no soportado",
-                    f"El formato de actualización no es compatible: {filename}"
-                )
-        except Exception as e:
-            QMessageBox.critical(
-                self.parent,
-                "Error de instalación",
-                f"No se pudo instalar la actualización:\n{str(e)}"
-            )
-    
-    def _install_exe(self, exe_path):
-        """Instala una actualización .exe"""
-        # Crear script de actualización
-        current_exe = sys.executable if getattr(sys, 'frozen', False) else None
-        
-        if not current_exe:
-            QMessageBox.warning(
-                self.parent,
-                "Actualización no disponible",
-                "Las actualizaciones solo están disponibles en la versión ejecutable"
-            )
+        # Obtener ruta del ejecutable actual
+        if getattr(sys, 'frozen', False):
+            # Ejecutándose como .exe
+            current_exe = sys.executable
+        else:
+            # Ejecutándose como script Python (desarrollo)
+            logger.warning("Ejecutando en modo desarrollo, actualización simulada")
             return
         
-        # Script batch para Windows
-        batch_script = f"""@echo off
-echo Actualizando aplicacion...
-timeout /t 2 /nobreak > nul
-taskkill /F /IM "{os.path.basename(current_exe)}" > nul 2>&1
-timeout /t 1 /nobreak > nul
-copy /Y "{exe_path}" "{current_exe}"
+        current_dir = os.path.dirname(current_exe)
+        update_script = os.path.join(current_dir, 'update_temp.bat')
+        
+        # Crear script de actualización
+        script_content = f"""@echo off
+echo Instalando actualizacion...
+timeout /t 2 /nobreak >nul
+
+REM Intentar eliminar ejecutable anterior
+:retry
+del /f /q "{current_exe}" 2>nul
+if exist "{current_exe}" (
+    timeout /t 1 /nobreak >nul
+    goto retry
+)
+
+REM Mover nuevo ejecutable
+move /y "{new_exe_path}" "{current_exe}"
+
+REM Reiniciar aplicación
 start "" "{current_exe}"
-del "%~f0"
+
+REM Auto-eliminar este script
+timeout /t 1 /nobreak >nul
+del /f /q "%~f0"
 """
         
-        batch_path = os.path.join(tempfile.gettempdir(), "update_app.bat")
-        with open(batch_path, 'w') as f:
-            f.write(batch_script)
+        with open(update_script, 'w', encoding='utf-8') as f:
+            f.write(script_content)
         
-        QMessageBox.information(
-            self.parent,
-            "Instalando actualización",
-            "La aplicación se cerrará y se actualizará automáticamente.\n"
-            "Espera unos segundos a que se reinicie."
-        )
+        logger.info("Ejecutando script de actualización y cerrando aplicación...")
         
-        # Ejecutar script y cerrar aplicación
-        subprocess.Popen(['cmd', '/c', batch_path], 
-                        creationflags=subprocess.CREATE_NO_WINDOW)
-        
-        # Cerrar la aplicación
-        self.parent.close()
+        # Ejecutar script y cerrar aplicación actual
+        subprocess.Popen(update_script, shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        sys.exit(0)
+
+
+# ==================== FUNCIÓN PRINCIPAL ====================
+
+def check_and_notify_update(parent_window=None):
+    """
+    Función principal para verificar actualizaciones al iniciar la app
     
-    def _install_zip(self, zip_path):
-        """Instala una actualización .zip"""
+    Args:
+        parent_window: Ventana principal de la aplicación (Tkinter, PyQt, etc.)
+    
+    Returns:
+        bool: True si se está instalando actualización, False si no hay o se canceló
+    """
+    updater = AutoUpdater()
+    update_info = updater.check_for_updates()
+    
+    if not update_info.get('available'):
+        if update_info.get('error'):
+            logger.warning(f"No se pudo verificar actualizaciones: {update_info['error']}")
+        else:
+            logger.info("La aplicación está actualizada")
+        return False
+    
+    # Hay actualización disponible
+    version = update_info['version']
+    notes = update_info['release_notes']
+    
+    # Mostrar diálogo (detectar framework UI)
+    user_accepted = _show_update_dialog(version, notes, parent_window)
+    
+    if user_accepted:
         try:
-            # Extraer ZIP
-            extract_dir = os.path.join(tempfile.gettempdir(), "app_update")
-            if os.path.exists(extract_dir):
-                shutil.rmtree(extract_dir)
-            
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(extract_dir)
-            
-            # Buscar el .exe en el ZIP
-            exe_files = list(Path(extract_dir).rglob("*.exe"))
-            
-            if not exe_files:
-                QMessageBox.warning(
-                    self.parent,
-                    "Error",
-                    "No se encontró archivo ejecutable en la actualización"
-                )
-                return
-            
-            # Instalar el .exe encontrado
-            self._install_exe(str(exe_files[0]))
-        
+            # Descargar e instalar
+            updater.download_and_install(update_info['download_url'])
+            return True
         except Exception as e:
-            raise Exception(f"Error al procesar ZIP: {str(e)}")
+            _show_error_dialog(f"Error al actualizar: {e}", parent_window)
+            return False
+    
+    return False
+
+
+def _show_update_dialog(version, notes, parent=None):
+    """Muestra diálogo de actualización (detecta framework automáticamente)"""
+    
+    message = f"""
+Nueva versión disponible: v{version}
+
+Versión actual: v{CURRENT_VERSION}
+
+Cambios:
+{notes[:300]}{'...' if len(notes) > 300 else ''}
+
+¿Desea actualizar ahora?
+La aplicación se reiniciará automáticamente.
+    """.strip()
+    
+    # Intentar con tkinter (más común)
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+        
+        if parent is None:
+            root = tk.Tk()
+            root.withdraw()
+            result = messagebox.askyesno("Actualización Disponible", message, icon='info')
+            root.destroy()
+        else:
+            result = messagebox.askyesno("Actualización Disponible", message, icon='info', parent=parent)
+        
+        return result
+        
+    except ImportError:
+        pass
+    
+    # Intentar con PyQt5
+    try:
+        from PyQt5.QtWidgets import QMessageBox
+        
+        msg_box = QMessageBox()
+        msg_box.setIcon(QMessageBox.Information)
+        msg_box.setWindowTitle("Actualización Disponible")
+        msg_box.setText(message)
+        msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        
+        return msg_box.exec_() == QMessageBox.Yes
+        
+    except ImportError:
+        pass
+    
+    # Fallback: consola
+    logger.info(message)
+    response = input("Actualizar? (s/n): ").lower()
+    return response == 's'
+
+
+def _show_error_dialog(message, parent=None):
+    """Muestra diálogo de error"""
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+        
+        if parent is None:
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showerror("Error de Actualización", message)
+            root.destroy()
+        else:
+            messagebox.showerror("Error de Actualización", message, parent=parent)
+    except:
+        logger.error(message)
+
+
+# ==================== TESTING ====================
+
+if __name__ == "__main__":
+    """Ejecutar para probar el módulo de actualización"""
+    print("Probando módulo de actualización...")
+    check_and_notify_update()
