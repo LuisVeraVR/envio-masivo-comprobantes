@@ -152,39 +152,54 @@ class Validator:
             return str(11 - residuo)
     
     @staticmethod
-    def nits_coinciden(nit1: str, nit2: str) -> bool:
+    def nits_coinciden(nit1: str, nit2: str, modo_estricto: bool = True) -> bool:
         """
         Compara dos NITs/Cédulas (solo los números, sin guion ni verificador)
-        
-        MEJORADO: Ahora hace comparación flexible:
-        - 1085245654 == 108524565 (con/sin último dígito)
-        - 80003512 == 800035120 (con/sin último dígito)
-        
+
         Args:
             nit1: Primer NIT/Cédula
             nit2: Segundo NIT/Cédula
-            
+            modo_estricto: Si es True (por defecto), solo acepta coincidencia EXACTA.
+                          Si es False, tolera diferencias en el último dígito (puede dar falsos positivos).
+
         Returns:
             True si los NITs/Cédulas coinciden
+
+        Ejemplos:
+            - modo_estricto=True:  "1085245654" == "1085245654" ✓
+            - modo_estricto=True:  "1085245654" == "108524565"  ✗
+            - modo_estricto=False: "1085245654" == "108524565"  ✓ (flexible, puede ser incorrecto)
         """
         if not nit1 or not nit2:
             return False
-        
+
         # Normalizar ambos (solo números, SIN eliminar último dígito)
         nit1_norm = Validator.normalizar_nit(nit1)
         nit2_norm = Validator.normalizar_nit(nit2)
-        
-        # Comparar directamente
+
+        # Comparación EXACTA (siempre se verifica primero)
         if nit1_norm == nit2_norm:
             return True
-        
-        # Comparación flexible: uno puede ser el otro sin el último dígito
-        # Ejemplo: 1085245654 vs 108524565
-        if len(nit1_norm) == 10 and nit1_norm[:-1] == nit2_norm:
+
+        # Si modo estricto, no hacer más comparaciones
+        if modo_estricto:
+            return False
+
+        # MODO FLEXIBLE (solo si modo_estricto=False):
+        # Comparación tolerante con el último dígito
+        # ⚠️ ADVERTENCIA: Puede causar falsos positivos si hay NITs similares
+        # Ejemplo: 1085245654 vs 108524565 (pueden ser NITs diferentes)
+        if len(nit1_norm) == 10 and len(nit2_norm) == 9 and nit1_norm[:-1] == nit2_norm:
             return True
-        if len(nit2_norm) == 10 and nit2_norm[:-1] == nit1_norm:
+        if len(nit2_norm) == 10 and len(nit1_norm) == 9 and nit2_norm[:-1] == nit1_norm:
             return True
-        
+
+        # Tolerancia adicional para 8-9 dígitos
+        if len(nit1_norm) == 9 and len(nit2_norm) == 8 and nit1_norm[:-1] == nit2_norm:
+            return True
+        if len(nit2_norm) == 9 and len(nit1_norm) == 8 and nit2_norm[:-1] == nit1_norm:
+            return True
+
         return False
     
     @staticmethod
