@@ -16,6 +16,13 @@ from pathlib import Path
 class ZipHandler:
     """Maneja archivos ZIP con comprobantes PDF"""
 
+    # Precompilar regex para mejor performance
+    _REGEX_NIT_INICIO = re.compile(r"^[_\s-]*NIT\._?\s*(\d{7,10})(?!\d)", re.IGNORECASE)
+    _REGEX_NIT_INICIO_DV = re.compile(r"^[_\s-]*NIT\._?\s*(\d{7,10})-\d\b", re.IGNORECASE)
+    _REGEX_NIT_FLEXIBLE = re.compile(r"(?i)(?:^|[^A-Za-z0-9])N\.?\s*I\.?\s*T\.?\s*[_\.\s-]*\s*(\d{7,10})(?!\d)")
+    _REGEX_NIT_DV = re.compile(r"\b(\d{7,10})-\d\b")
+    _REGEX_NIT_CERCANO = re.compile(r"(?i)NIT[._\s]+0*")
+
     def __init__(self, logger=None):
         """
         Inicializa el manejador de ZIP
@@ -74,14 +81,16 @@ class ZipHandler:
     def _extraer_nit_de_nombre(self, nombre_archivo):
         """
         Extrae el NIT/cédula del nombre de un archivo PDF.
-        
+
+        OPTIMIZADO: Usa regex precompiladas y solo extrae por NIT (no por nombre)
+
         Estrategias combinadas:
         1. Busca patrones explícitos con "NIT" (al inicio o en cualquier parte)
         2. Busca números con dígito verificador (formato X-Y)
         3. Acepta identificaciones de 7-10 dígitos (cédulas y NITs)
         4. Filtra números de factura (F_, ORF_, RF-)
         5. Prioriza el número más cercano a la palabra "NIT"
-        
+
         Ejemplos soportados:
         - NIT._ 31404561 → 31404561
         - NIT._ 800035120 → 800035120
@@ -93,26 +102,23 @@ class ZipHandler:
 
         # ==================== ESTRATEGIA 1: NIT explícito al inicio ====================
         # Patrón: ^[espacios/guiones]*NIT._[espacios]*DIGITOS
-        m1 = re.search(r"^[_\s-]*NIT\._?\s*(\d{7,10})(?!\d)", base, flags=re.IGNORECASE)
+        m1 = self._REGEX_NIT_INICIO.search(base)
         if m1:
             candidatos.add(m1.group(1))
-        
+
         # Con dígito verificador: NIT._ 12345678-9
-        m1b = re.search(r"^[_\s-]*NIT\._?\s*(\d{7,10})-\d\b", base, flags=re.IGNORECASE)
+        m1b = self._REGEX_NIT_INICIO_DV.search(base)
         if m1b:
             candidatos.add(m1b.group(1))
 
         # ==================== ESTRATEGIA 2: NIT en cualquier parte ====================
         # Patrón flexible: N.I.T / NIT / N I T seguido de número
-        patron_flexible = re.compile(
-            r"(?i)(?:^|[^A-Za-z0-9])N\.?\s*I\.?\s*T\.?\s*[_\.\s-]*\s*(\d{7,10})(?!\d)"
-        )
-        for match in patron_flexible.finditer(base):
+        for match in self._REGEX_NIT_FLEXIBLE.finditer(base):
             candidatos.add(match.group(1))
 
         # ==================== ESTRATEGIA 3: Números con dígito verificador ====================
         # Formato: 12345678-9 (sin importar posición)
-        for match in re.finditer(r"\b(\d{7,10})-\d\b", base):
+        for match in self._REGEX_NIT_DV.finditer(base):
             candidatos.add(match.group(1))
 
         # ==================== ESTRATEGIA 4: Formato RF- con múltiples números ====================
@@ -131,21 +137,22 @@ class ZipHandler:
         # ==================== FILTRADO DE FALSOS POSITIVOS ====================
         # Descartar números que son claramente facturas (F_, ORF_, RF_)
         candidatos_filtrados = []
-        
+
         for c in candidatos:
             # Verificar si este número aparece después de F_, ORF_, o RF_ como factura
             # Ejemplo: "F_ ORF_ 84838066" → 84838066 es factura, NO NIT
             patron_factura = r"(?i)\b(?:F|ORF|RF)[_\s]+0*" + re.escape(c) + r"\b"
-            
+
             # Si el número NO aparece como factura, es candidato válido
             if not re.search(patron_factura, base):
                 candidatos_filtrados.append(c)
             else:
                 # Verificar si también aparece en otro contexto (cerca de "NIT")
-                patron_nit_cercano = r"(?i)NIT[._\s]+0*" + re.escape(c) + r"\b"
-                if re.search(patron_nit_cercano, base):
-                    # Está cerca de "NIT", probablemente es el NIT correcto
-                    candidatos_filtrados.append(c)
+                if self._REGEX_NIT_CERCANO.search(base):
+                    patron_match = re.escape(c) + r"\b"
+                    if re.search(patron_match, base):
+                        # Está cerca de "NIT", probablemente es el NIT correcto
+                        candidatos_filtrados.append(c)
 
         # Si todos fueron filtrados, usar los originales
         if not candidatos_filtrados:
@@ -333,14 +340,14 @@ class ZipHandler:
 
     # ========================= Búsquedas por NIT / Nombre =======================
 
-    def obtener_archivos_por_nit(self, nit, modo_estricto=True):
+    def obtener_archivos_por_nit(self, nit):
         """
         Devuelve los PDFs asociados al NIT.
 
+        OPTIMIZADO: Solo búsqueda exacta por NIT (modo estricto siempre activado)
+
         Args:
             nit: NIT a buscar
-            modo_estricto: Si es True (por defecto), solo busca coincidencias exactas.
-                          Si es False, usa llaves espejo para mayor tolerancia.
 
         Returns:
             Lista de rutas de archivos PDF asociados al NIT
@@ -352,126 +359,58 @@ class ZipHandler:
         if not digits:
             return []
 
-        # MODO ESTRICTO (por defecto): Solo búsqueda exacta
-        if modo_estricto:
-            return self.archivos_por_nit.get(digits, [])
-
-        # MODO FLEXIBLE (opcional): Llaves espejo para compatibilidad con dígito verificador
-        # ⚠️ ADVERTENCIA: Este modo puede causar matches incorrectos si hay NITs similares
-        keys = {digits}
-        if len(digits) == 10:
-            keys.add(digits[:-1])  # 10 → 9
-        elif len(digits) == 9:
-            keys.add(digits[:-1])  # 9 → 8
-        elif len(digits) == 8:
-            keys.add(digits[:-1])  # 8 → 7
-
-        resultados: List[str] = []
-        for k in keys:
-            resultados.extend(self.archivos_por_nit.get(k, []))
-        return list(dict.fromkeys(resultados))  # sin duplicados
+        # Solo búsqueda exacta
+        return self.archivos_por_nit.get(digits, [])
 
     def buscar_archivos_por_nit_flexible(self, nit_buscado, nombre_cliente=None):
         """
-        Busca archivos por NIT de forma flexible y, si falla, por nombre de empresa.
+        Busca archivos por NIT.
 
-        IMPORTANTE: Esta función se usa como FALLBACK cuando la búsqueda exacta falla.
-        El orden de búsqueda es:
-        1. Búsqueda exacta por NIT
-        2. Búsqueda flexible con llaves espejo (puede causar matches incorrectos)
-        3. Por aparición del número en el nombre del archivo
-        4. Por similitud del nombre de empresa (menos preciso)
+        OPTIMIZADO: Solo búsqueda exacta por NIT, sin fallback por nombre.
 
         Args:
             nit_buscado: NIT a buscar
-            nombre_cliente: Nombre del cliente (opcional, para búsqueda por nombre)
+            nombre_cliente: Ignorado (mantenido por compatibilidad)
 
         Returns:
             Lista de rutas de archivos encontrados (puede estar vacía)
         """
         digits = self._only_digits(nit_buscado)
         if digits:
-            # 1) Búsqueda EXACTA primero
-            archivos = self.obtener_archivos_por_nit(digits, modo_estricto=True)
+            # Solo búsqueda EXACTA por NIT
+            archivos = self.obtener_archivos_por_nit(digits)
             if archivos:
                 if self.logger:
                     self.logger.debug(
-                        f"Match EXACTO encontrado para NIT {digits}: {len(archivos)} archivo(s)",
+                        f"Match encontrado para NIT {digits}: {len(archivos)} archivo(s)",
                         modulo="ZipHandler"
                     )
                 return archivos
 
-            # 2) Búsqueda flexible con llaves espejo (puede dar falsos positivos)
-            archivos_flexibles = self.obtener_archivos_por_nit(digits, modo_estricto=False)
-            if archivos_flexibles:
-                if self.logger:
-                    self.logger.warning(
-                        f"Match FLEXIBLE para NIT {digits}: {len(archivos_flexibles)} archivo(s) - "
-                        f"⚠️ Verifique que sean correctos",
-                        modulo="ZipHandler"
-                    )
-                return archivos_flexibles
-
-            # 3) Por aparición del número en el nombre del archivo
-            candidatos = []
-            for ruta in self.archivos_extraidos:
-                nombre = os.path.basename(ruta)
-                if digits in nombre:
-                    candidatos.append(ruta)
-            if candidatos:
-                if self.logger:
-                    self.logger.warning(
-                        f"Match por SUBSTRING para NIT {digits}: {len(candidatos)} archivo(s) - "
-                        f"⚠️ Verifique que sean correctos",
-                        modulo="ZipHandler"
-                    )
-                return candidatos
-
-        # 4) Por similitud del nombre de empresa (menos preciso)
-        if nombre_cliente:
-            por_nombre = self._buscar_por_nombre_empresa(nombre_cliente)
-            if por_nombre:
-                if self.logger:
-                    self.logger.warning(
-                        f"Match por NOMBRE para '{nombre_cliente}': {len(por_nombre)} archivo(s) - "
-                        f"⚠️ VERIFIQUE MANUALMENTE que sean correctos",
-                        modulo="ZipHandler"
-                    )
-                return por_nombre
-
+        # No se encontró el NIT
+        if self.logger:
+            self.logger.warning(
+                f"No se encontraron archivos para el NIT {digits}",
+                modulo="ZipHandler"
+            )
         return []
 
     def _buscar_por_nombre_empresa(self, nombre_cliente):
         """
-        Busca archivos por similitud en el nombre de la empresa
+        DESACTIVADO: No se busca por nombre, solo por NIT.
+
+        Args:
+            nombre_cliente: Ignorado
+
+        Returns:
+            Lista vacía (búsqueda por nombre desactivada)
         """
-        if not nombre_cliente:
-            return []
-
-        nombre_norm = self._normalizar_texto(nombre_cliente)
-
-        palabras_ignorar = {
-            "sas", "s.a.s", "sa", "s.a", "ltda", "limitada",
-            "sociedad", "por", "acciones", "simplificada",
-            "comercializadora", "distribuidora", "inversiones",
-            "productos", "servicios", "empresa", "compania", "compañia",
-            "cia", "de", "del", "la", "el", "y", "e", "los", "las",
-            "quesos", "florida"
-        }
-
-        palabras = [p for p in nombre_norm.split() if len(p) >= 4 and p not in palabras_ignorar]
-        if not palabras:
-            palabras = nombre_norm.split()[:3]
-
-        candidatos = []
-        for ruta in self.archivos_extraidos:
-            nombre_archivo = self._normalizar_texto(os.path.basename(ruta))
-            score = sum(1 for p in palabras if p in nombre_archivo)
-            if score >= max(1, int(len(palabras) * 0.5)):
-                candidatos.append((ruta, score))
-
-        candidatos.sort(key=lambda x: (-x[1], x[0]))
-        return [archivo for archivo, _ in candidatos]
+        if self.logger:
+            self.logger.warning(
+                "Búsqueda por nombre desactivada - solo se identifica por NIT",
+                modulo="ZipHandler"
+            )
+        return []
 
     # ========================= Reportes / Limpieza ==============================
 
