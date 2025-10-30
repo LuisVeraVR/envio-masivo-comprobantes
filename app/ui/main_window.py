@@ -9,13 +9,11 @@ from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QStatusBar,
-    QMenuBar,
-    QMenu,
     QMessageBox,
     QLabel,
 )
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QAction, QIcon
+from PyQt6.QtGui import QAction
 from app.version import __version__, __app_name__
 from app.config import ConfigManager
 from app.database.models import Database
@@ -35,6 +33,9 @@ class MainWindow(QMainWindow):
         self.db = Database()
         self.logger = get_logger(db_manager=self.db)
 
+        # Importante: asegurar que exista antes de crear el menú
+        self.updater = None
+
         # Configurar ventana
         self.setWindowTitle(f"{__app_name__} v{__version__}")
         self.setMinimumSize(1000, 700)
@@ -44,7 +45,7 @@ class MainWindow(QMainWindow):
         self._crear_interfaz()
         self._crear_barra_estado()
 
-        # ✅ NUEVO: Inicializar sistema de actualizaciones
+        # ✅ Inicializar sistema de actualizaciones
         self._inicializar_actualizaciones()
 
         # Verificar configuración inicial
@@ -89,23 +90,42 @@ class MainWindow(QMainWindow):
 
         # Menú Ayuda
         menu_ayuda = menubar.addMenu("A&yuda")
-    
-        # ✅ NUEVO: Opción de buscar actualizaciones
-        if hasattr(self, 'updater') and self.updater:
-            accion_actualizar = QAction("🔄 Buscar Actualizaciones", self)
-            accion_actualizar.triggered.connect(
-                lambda: self.updater.check_for_updates(silent=False)
-            )
-            menu_ayuda.addAction(accion_actualizar)
-            menu_ayuda.addSeparator()
-    
+
+        # 🔄 Buscar actualizaciones (siempre visible)
+        accion_actualizar = QAction("🔄 Buscar Actualizaciones", self)
+        accion_actualizar.triggered.connect(self._buscar_actualizaciones)
+        menu_ayuda.addAction(accion_actualizar)
+        menu_ayuda.addSeparator()
+
         accion_acerca = QAction("Acerca de...", self)
         accion_acerca.triggered.connect(self._mostrar_acerca_de)
         menu_ayuda.addAction(accion_acerca)
-    
+
         accion_manual = QAction("Manual de usuario", self)
         accion_manual.triggered.connect(self._mostrar_manual)
         menu_ayuda.addAction(accion_manual)
+
+    def _buscar_actualizaciones(self):
+        """Handler del menú Ayuda → Buscar Actualizaciones"""
+        try:
+            if self.updater:
+                self.updater.check_for_updates(silent=False)
+                return
+
+            # Si no está inicializado aún, crear uno ad-hoc
+            repo = self.config.get("update.github_repo", "")
+            if not repo:
+                QMessageBox.information(
+                    self,
+                    "Actualizaciones",
+                    "El sistema de actualizaciones no está configurado (falta github_repo).",
+                )
+                return
+
+            updater = AutoUpdater(self, __version__, repo)
+            updater.check_for_updates(silent=False)
+        except Exception as e:
+            QMessageBox.critical(self, "Actualizaciones", f"Error al buscar actualizaciones: {e}")
 
     def _crear_interfaz(self):
         """Crea la interfaz principal con pestañas"""
@@ -454,7 +474,7 @@ class MainWindow(QMainWindow):
             event.accept()
         else:
             event.ignore()
-            
+
     def _inicializar_actualizaciones(self):
         """Inicializa el sistema de actualizaciones automáticas"""
         github_repo = self.config.get("update.github_repo", "")

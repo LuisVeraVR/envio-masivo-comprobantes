@@ -10,28 +10,27 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
-from PyQt6.QtCore import Qt
 from app.ui.main_window import MainWindow
 from app.version import __version__, __app_name__
 from app.utils.logger import get_logger
-from app.utils.updater import check_and_notify_update 
+
 
 def verificar_dependencias():
     """Verifica que todas las dependencias estén instaladas"""
     dependencias_faltantes = []
     
     try:
-        import openpyxl
+        import openpyxl  # noqa
     except ImportError:
         dependencias_faltantes.append("openpyxl")
     
     try:
-        import pandas
+        import pandas  # noqa
     except ImportError:
         dependencias_faltantes.append("pandas")
     
     try:
-        from cryptography.fernet import Fernet
+        from cryptography.fernet import Fernet  # noqa
     except ImportError:
         dependencias_faltantes.append("cryptography")
     
@@ -69,17 +68,8 @@ def main():
         QMessageBox.critical(None, "Error", f"Error al inicializar logs:\n{str(e)}")
         sys.exit(1)
     
-    # ⚠️ VERIFICAR ACTUALIZACIONES AL INICIAR
-    try:
-        logger.info("Verificando actualizaciones disponibles...", modulo="Main")
-        is_updating = check_and_notify_update()
-        if is_updating:
-            # Si se está actualizando, la app se cerrará automáticamente
-            logger.info("Instalando actualización...", modulo="Main")
-            return
-    except Exception as e:
-        logger.warning(f"No se pudo verificar actualizaciones: {e}", modulo="Main")
-        # Continuar con la aplicación aunque falle la verificación
+    # NOTA: La verificación de actualizaciones ahora la maneja MainWindow
+    # mediante _inicializar_actualizaciones() (silent en el arranque).
     
     # Crear ventana principal
     try:
@@ -88,7 +78,7 @@ def main():
     except Exception as e:
         logger.error(f"Error al crear ventana: {e}", modulo="Main", exc_info=True)
         QMessageBox.critical(None, "Error crítico", 
-                           f"Error al iniciar:\n{str(e)}\n\nRevise los logs.")
+                             f"Error al iniciar:\n{str(e)}\n\nRevise los logs.")
         sys.exit(1)
     
     # Ejecutar aplicación
