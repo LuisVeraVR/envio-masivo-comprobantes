@@ -1,8 +1,11 @@
 """
 Control de versión de la aplicación
+
+Este archivo es la ÚNICA FUENTE DE VERDAD para la versión de la aplicación.
+Para actualizar la versión, use el script: python update_version.py X.Y.Z
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.2"
 __author__ = "Luis Vera"
 __app_name__ = "Sistema Envío Comprobantes"
 __app_id__ = "comprobantes-app"
@@ -17,6 +20,22 @@ VERSION_HISTORY = {
         "Sistema de actualizaciones automáticas",
         "Configuración de emails en copia (CC)",
         "Modo de pruebas"
+    ],
+    "1.1.0": [
+        "Mejoras en la interfaz de usuario",
+        "Sistema de pruebas mejorado",
+        "Correcciones de bugs"
+    ],
+    "1.1.1": [
+        "Plantilla descargable de Excel para correos",
+        "Mejoras en la configuración SMTP",
+        "Correcciones menores"
+    ],
+    "1.1.2": [
+        "Manual de usuario expandido y detallado",
+        "Matching de NITs preciso y estricto (soluciona problema de clientes de más)",
+        "Detección automática de NITs similares con advertencias",
+        "Sistema de versionado automático centralizado"
     ]
 }
 
