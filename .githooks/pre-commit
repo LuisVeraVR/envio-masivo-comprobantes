@@ -1,0 +1,38 @@
+#!/bin/bash
+# Git Hook Pre-Commit - Actualización automática de versión
+# Este hook se ejecuta antes de cada commit y actualiza automáticamente
+# el número de versión del proyecto
+
+echo ""
+echo "================================================"
+echo "  Auto-actualizando versión..."
+echo "================================================"
+
+# Obtener el directorio raíz del repositorio
+REPO_ROOT=$(git rev-parse --show-toplevel)
+
+# Ejecutar el script de bump de versión
+python3 "$REPO_ROOT/bump_version.py" --type patch
+
+# Verificar si el script se ejecutó correctamente
+if [ $? -eq 0 ]; then
+    # Agregar los archivos modificados al stage
+    git add "$REPO_ROOT/app/version.py" \
+            "$REPO_ROOT/app/__init__.py" \
+            "$REPO_ROOT/package.bat" 2>/dev/null
+
+    echo ""
+    echo "✓ Versión actualizada y archivos agregados al commit"
+    echo "================================================"
+    echo ""
+else
+    echo ""
+    echo "✗ Error al actualizar versión"
+    echo "================================================"
+    echo ""
+    # Permitir que el commit continúe incluso si hay error
+    exit 0
+fi
+
+# Permitir que el commit continúe
+exit 0
