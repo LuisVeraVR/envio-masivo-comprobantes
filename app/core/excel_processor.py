@@ -24,12 +24,13 @@ class ExcelProcessor:
     def __init__(self, logger=None):
         """
         Inicializa el procesador de Excel
-        
+
         Args:
             logger: Instancia del logger (opcional)
         """
         self.logger = logger or get_logger()
         self.clientes = []
+        self.clientes_por_nit = {}  # Índice rápido: {nit: cliente}
         self.errores = []
     
     def _normalizar_columna(self, nombre_columna):
@@ -92,14 +93,15 @@ class ExcelProcessor:
     def procesar_archivo(self, ruta_excel):
         """
         Procesa un archivo Excel y extrae los datos de clientes
-        
+
         Args:
             ruta_excel: Ruta al archivo Excel
-            
+
         Returns:
             Tupla (exito, mensaje, lista_clientes)
         """
         self.clientes = []
+        self.clientes_por_nit = {}
         self.errores = []
         
         # Validar que el archivo existe y es Excel
@@ -127,33 +129,33 @@ class ExcelProcessor:
                            f"Nombre={columnas['nombre']}, Email={columnas['email']}", 
                            modulo="ExcelProcessor")
             
-            # Procesar cada fila
+            # Procesar cada fila - OPTIMIZADO: vectorización donde sea posible
             registros_procesados = 0
             registros_con_error = 0
-            
-            for index, row in df.iterrows():
+
+            # Convertir columnas a listas para procesamiento más rápido
+            nits_raw = df[columnas['nit']].tolist()
+            nombres_raw = df[columnas['nombre']].tolist()
+            emails_raw = df[columnas['email']].tolist()
+
+            for index, (nit_raw, nombre_raw, email_raw) in enumerate(zip(nits_raw, nombres_raw, emails_raw)):
                 try:
-                    # Obtener valores de las columnas
-                    nit_raw = row[columnas['nit']]
-                    nombre_raw = row[columnas['nombre']]
-                    email_raw = row[columnas['email']]
-                    
                     # Convertir NIT correctamente (manejar float)
                     if pd.notna(nit_raw) and isinstance(nit_raw, (int, float)):
                         nit = str(int(nit_raw))
                     else:
                         nit = str(nit_raw).strip()
-                    
+
                     # Convertir nombre
                     nombre = str(nombre_raw).strip() if pd.notna(nombre_raw) else ""
-                    
+
                     # Convertir email
                     email = str(email_raw).strip() if pd.notna(email_raw) else ""
-                    
+
                     # Saltar filas vacías
                     if not nit or nit.lower() in ['nan', 'none', '']:
                         continue
-                    
+
                     # Validar NIT
                     es_valido_nit, mensaje_nit = Validator.validar_nit(nit)
                     if not es_valido_nit:
@@ -161,10 +163,10 @@ class ExcelProcessor:
                         self.errores.append(error)
                         registros_con_error += 1
                         continue
-                    
+
                     # Normalizar NIT
                     nit = Validator.normalizar_nit(nit)
-                    
+
                     # ✅ CORRECCIÓN: Validar lista de emails (soporta múltiples emails)
                     es_valido_email, mensaje_email, lista_emails = Validator.validar_lista_emails(email)
                     if not es_valido_email:
@@ -172,7 +174,7 @@ class ExcelProcessor:
                         self.errores.append(error)
                         registros_con_error += 1
                         continue
-                    
+
                     # Si hay emails válidos, reunirlos con punto y coma
                     if lista_emails:
                         email = "; ".join(lista_emails)
@@ -181,14 +183,14 @@ class ExcelProcessor:
                         self.errores.append(error)
                         registros_con_error += 1
                         continue
-                    
+
                     # Validar nombre
                     if not nombre or nombre.lower() in ['nan', 'none', '']:
                         error = f"Fila {index + 2}: Nombre de cliente vacío"
                         self.errores.append(error)
                         registros_con_error += 1
                         continue
-                    
+
                     # Agregar cliente válido
                     cliente = {
                         'nit': nit,
@@ -196,10 +198,12 @@ class ExcelProcessor:
                         'email': email,  # Ahora puede contener múltiples emails separados por "; "
                         'fila': index + 2  # +2 porque index empieza en 0 y hay fila de encabezados
                     }
-                    
+
                     self.clientes.append(cliente)
+                    # Indexar por NIT para búsqueda O(1)
+                    self.clientes_por_nit[nit] = cliente
                     registros_procesados += 1
-                
+
                 except Exception as e:
                     error = f"Fila {index + 2}: Error al procesar - {str(e)}"
                     self.errores.append(error)
@@ -254,21 +258,16 @@ class ExcelProcessor:
     
     def obtener_cliente_por_nit(self, nit):
         """
-        Busca un cliente por su NIT
-        
+        Busca un cliente por su NIT (búsqueda O(1) optimizada)
+
         Args:
             nit: NIT del cliente a buscar
-            
+
         Returns:
             Diccionario con datos del cliente o None
         """
         nit_normalizado = Validator.normalizar_nit(nit)
-        
-        for cliente in self.clientes:
-            if cliente['nit'] == nit_normalizado:
-                return cliente
-        
-        return None
+        return self.clientes_por_nit.get(nit_normalizado)
     
     def exportar_errores(self, ruta_salida):
         """

@@ -9,9 +9,9 @@
     "username": "inteligenciadenegocios@correagro.com",
     "password_encrypted": "Z0FBQUFBQm9fLW9MMDh0WkVnSkRiSWhxT1A3ektxMklwN0d2TXBwdkFHNlh4TzBjeWpmcXhDUmM4aG9aTmtsR2UtQ3B2RjE3WUhxYkdTcnlxelZTVHlwUUpJWGtZX2lUTWl2WlRrZnFvTUEyNm5xUzhsQkxtRTA9"
   },
-    "update": {
+  "update": {
     "check_on_startup": true,
-    "github_repo": "LuisVeraVR/https://github.com/LuisVeraVR/envio-masivo-comprobantes"
+    "github_repo": "LuisVeraVR/envio-masivo-comprobantes"
   },
   "email": {
     "nit_required_in_subject": true,
